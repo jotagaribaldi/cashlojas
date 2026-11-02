@@ -1,9 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, RedemptionStatus, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types';
+import { endOfDayInOffset } from '../common/utils/dates';
+import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateGroupDto, CreateStoreDto, UpdateGroupDto, UpdateStoreDto } from './dto';
+import { AuditLogsQuery, CreateGroupDto, CreateStoreDto, UpdateGroupDto, UpdateStoreDto } from './dto';
 
 const pctToBps = (v: number | undefined) => (v === undefined ? undefined : Math.round(v * 100));
 
@@ -12,6 +15,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   listGroups() {
@@ -25,21 +29,23 @@ export class AdminService {
     const exists = await this.prisma.group.findUnique({ where: { slug: dto.slug }, select: { id: true } });
     if (exists) throw new ConflictException('Já existe um grupo com este identificador');
     const group = await this.prisma.group.create({ data: { name: dto.name, slug: dto.slug } });
-    await this.audit.log({ userId: actor.id, action: 'GROUP_CREATED', entity: 'Group', entityId: group.id, ip });
+    await this.audit.log({ userId: actor.id, action: 'GROUP_CREATED', entity: 'Group', entityId: group.id, metadata: { name: group.name, slug: group.slug }, ip });
     return group;
   }
 
   async updateGroup(id: string, dto: UpdateGroupDto, actor: AuthUser, ip?: string) {
+    const before = await this.prisma.group.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('Grupo não encontrado');
     const group = await this.prisma.group.update({ where: { id }, data: { name: dto.name, active: dto.active } });
-    await this.audit.log({ userId: actor.id, action: 'GROUP_UPDATED', entity: 'Group', entityId: id, ip });
+    await this.audit.log({ userId: actor.id, action: 'GROUP_UPDATED', entity: 'Group', entityId: id, metadata: { changes: dto, before } as unknown as Prisma.InputJsonValue, ip });
     return group;
   }
 
   async deleteGroup(id: string, actor: AuthUser, ip?: string) {
     const stores = await this.prisma.store.count({ where: { groupId: id } });
     if (stores > 0) throw new ConflictException('Remova ou transfira as lojas do grupo antes de excluí-lo');
-    await this.prisma.group.delete({ where: { id } });
-    await this.audit.log({ userId: actor.id, action: 'GROUP_DELETED', entity: 'Group', entityId: id, ip });
+    const deleted = await this.prisma.group.delete({ where: { id } });
+    await this.audit.log({ userId: actor.id, action: 'GROUP_DELETED', entity: 'Group', entityId: id, metadata: { name: deleted.name, slug: deleted.slug }, ip });
   }
 
   async listStores(groupId: string | undefined, search: string | undefined, page: number, pageSize: number) {
@@ -77,11 +83,13 @@ export class AdminService {
         maxRedeemPercentBps: pctToBps(dto.maxRedeemPercent) ?? 10_000,
       },
     });
-    await this.audit.log({ userId: actor.id, action: 'STORE_CREATED', entity: 'Store', entityId: store.id, ip });
+    await this.audit.log({ userId: actor.id, action: 'STORE_CREATED', entity: 'Store', entityId: store.id, metadata: { ...store } as unknown as Prisma.InputJsonValue, ip });
     return store;
   }
 
   async updateStore(id: string, dto: UpdateStoreDto, actor: AuthUser, ip?: string) {
+    const before = await this.prisma.store.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('Loja não encontrada');
     if (dto.groupId) {
       const group = await this.prisma.group.findUnique({ where: { id: dto.groupId }, select: { id: true } });
       if (!group) throw new NotFoundException('Grupo não encontrado');
@@ -104,7 +112,7 @@ export class AdminService {
       action: 'STORE_UPDATED',
       entity: 'Store',
       entityId: id,
-      metadata: dto as unknown as Prisma.InputJsonValue,
+      metadata: { changes: dto, before } as unknown as Prisma.InputJsonValue,
       ip,
     });
     return store;
@@ -153,20 +161,51 @@ export class AdminService {
     };
   }
 
-  async auditLogs(page: number, pageSize: number, search?: string) {
-    const where: Prisma.AuditLogWhereInput = search
-      ? { OR: [{ action: { contains: search.toUpperCase() } }, { entity: { contains: search, mode: 'insensitive' } }] }
-      : {};
+  async auditLogs(q: AuditLogsQuery) {
+    const and: Prisma.AuditLogWhereInput[] = [];
+    if (q.kind !== 'all') and.push(q.kind === 'http' ? { action: { startsWith: 'HTTP_' } } : { NOT: { action: { startsWith: 'HTTP_' } } });
+    if (q.userId) and.push({ userId: q.userId });
+    if (q.storeId) and.push({ storeId: q.storeId });
+    if (q.outcome) and.push({ outcome: q.outcome });
+    if (q.action) and.push({ action: q.action });
+    if (q.entityId) and.push({ OR: [{ entityId: q.entityId }, { metadata: { path: ['customerId'], equals: q.entityId } }] });
+    if (q.from || q.to) {
+      const offset = this.config.get('BUSINESS_UTC_OFFSET', { infer: true });
+      and.push({
+        createdAt: {
+          ...(q.from ? { gte: new Date(`${q.from}T00:00:00.000${offset}`) } : {}),
+          ...(q.to ? { lte: endOfDayInOffset(q.to, offset) } : {}),
+        },
+      });
+    }
+    if (q.search) {
+      and.push({
+        OR: [
+          { action: { contains: q.search.toUpperCase() } },
+          { entity: { contains: q.search, mode: 'insensitive' } },
+          { path: { contains: q.search, mode: 'insensitive' } },
+          { error: { contains: q.search, mode: 'insensitive' } },
+          { ip: { contains: q.search } },
+          { user: { is: { OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { email: { contains: q.search, mode: 'insensitive' } }] } } },
+        ],
+      });
+    }
+    const where: Prisma.AuditLogWhereInput = { AND: and };
     const [total, items] = await this.prisma.$transaction([
       this.prisma.auditLog.count({ where }),
       this.prisma.auditLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
         include: { user: { select: { name: true, email: true } } },
       }),
     ]);
-    return { total, page, pageSize, items };
+    return { total, page: q.page, pageSize: q.pageSize, items };
+  }
+
+  async auditActions() {
+    const rows = await this.prisma.auditLog.groupBy({ by: ['action'], orderBy: { action: 'asc' } });
+    return rows.map((r) => r.action);
   }
 }

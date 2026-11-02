@@ -5,6 +5,7 @@ import { User } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { JwtPayload, RequestContext } from '../common/types';
 
 export interface IssuedTokens {
@@ -21,6 +22,7 @@ export class TokenService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService<Env, true>,
+    private readonly audit: AuditService,
   ) {}
 
   private hash(token: string): string {
@@ -59,6 +61,7 @@ export class TokenService {
     if (existing.revokedAt) {
       this.logger.warn(`Reuso de refresh token detectado (família ${existing.familyId}, usuário ${existing.userId})`);
       await this.revokeFamily(existing.familyId);
+      await this.audit.log({ userId: existing.userId, action: 'TOKEN_REUSE_DETECTED', entity: 'User', entityId: existing.userId, outcome: 'DENIED', error: 'Reuso de token de sessão; todas as sessões da família foram revogadas', metadata: { familyId: existing.familyId }, ip: ctx.ip, userAgent: ctx.userAgent });
       throw new UnauthorizedException('Sessão inválida');
     }
     if (existing.passwordChangedAt.getTime() !== existing.user.passwordChangedAt.getTime()) {
@@ -89,11 +92,11 @@ export class TokenService {
     return { tokens, userId: existing.userId };
   }
 
-  async revoke(refreshToken: string): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: this.hash(refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+  async revoke(refreshToken: string): Promise<string | null> {
+    const token = await this.prisma.refreshToken.findUnique({ where: { tokenHash: this.hash(refreshToken) }, select: { id: true, userId: true, revokedAt: true } });
+    if (!token || token.revokedAt) return null;
+    await this.prisma.refreshToken.updateMany({ where: { id: token.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    return token.userId;
   }
 
   async revokeFamily(familyId: string): Promise<void> {

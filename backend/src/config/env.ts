@@ -11,7 +11,7 @@ export const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET deve ter ao menos 32 caracteres'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_ISSUER: z.string().default('cashlojas-api'),
-  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(7),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(90),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   APP_PUBLIC_URL: z.string().url().default('http://localhost:5173'),
   ACTIVATION_TTL_HOURS: z.coerce.number().int().positive().default(168),

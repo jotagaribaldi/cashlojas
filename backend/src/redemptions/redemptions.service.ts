@@ -100,8 +100,12 @@ export class RedemptionsService {
         },
         include: listInclude,
       });
+      await tx.redemptionRequest.updateMany({
+        where: { storeId, customerId: customer.id, status: 'OPEN' },
+        data: { status: 'ATTENDED' },
+      });
       await this.audit.log(
-        { userId: staff.id, action: 'REDEMPTION_REQUESTED', entity: 'Redemption', entityId: redemption.id, metadata: { discountCents }, ip },
+        { userId: staff.id, action: 'REDEMPTION_REQUESTED', entity: 'Redemption', entityId: redemption.id, metadata: { storeId, customerId: customer.id, fiscalDocument: dto.fiscalDocument, purchaseAmountCents, discountCents, balanceCents, maxRedeemableCents: max }, ip },
         tx,
       );
       return redemption;
@@ -177,13 +181,26 @@ export class RedemptionsService {
           include: { ...listInclude, store: { select: { name: true } } },
         });
         const balanceCents = await this.cashback.balance(current.customerId, current.storeId, tx);
+        const balanceBeforeCents = credits.reduce((acc, c) => acc + c.remainingCents, 0);
         await this.audit.log(
           {
             userId: manager.id,
             action: 'REDEMPTION_APPROVED',
             entity: 'Redemption',
             entityId: id,
-            metadata: { discountCents: current.discountCents, via, authorizationCode: updated.authorizationCode },
+            metadata: {
+              storeId: current.storeId,
+              customerId: current.customerId,
+              cashierId: current.cashierId,
+              fiscalDocument: current.fiscalDocument,
+              purchaseAmountCents: current.purchaseAmountCents,
+              discountCents: current.discountCents,
+              via,
+              authorizationCode: updated.authorizationCode,
+              balanceBeforeCents,
+              balanceAfterCents: balanceCents,
+              allocations: allocations.map((a) => ({ creditId: a.creditId, amountCents: a.amountCents })),
+            },
             ip: ctx.ip,
           },
           tx,
@@ -215,7 +232,9 @@ export class RedemptionsService {
         action: 'REDEMPTION_APPROVAL_DENIED',
         entity: 'Redemption',
         entityId: id,
-        metadata: { attemptedBy: manager.id },
+        outcome: 'DENIED',
+        error: 'Credenciais informadas não pertencem a um gerente desta loja',
+        metadata: { attemptedBy: manager.id, attemptedRole: manager.role },
         ip: ctx.ip,
       });
       throw new ForbiddenException('As credenciais informadas não pertencem a um gerente desta loja');
@@ -236,7 +255,7 @@ export class RedemptionsService {
       data: { status: RedemptionStatus.REJECTED, managerId: manager.id, decidedAt: new Date(), decisionNote: note },
     });
     if (updated.count !== 1) throw new ConflictException('Esta solicitação já foi decidida');
-    await this.audit.log({ userId: manager.id, action: 'REDEMPTION_REJECTED', entity: 'Redemption', entityId: id, ip: ctx.ip });
+    await this.audit.log({ userId: manager.id, action: 'REDEMPTION_REJECTED', entity: 'Redemption', entityId: id, metadata: { storeId: base.storeId, customerId: base.customerId, discountCents: base.discountCents, note }, ip: ctx.ip });
     return this.findForStaff(id, manager);
   }
 
@@ -250,7 +269,7 @@ export class RedemptionsService {
       data: { status: RedemptionStatus.CANCELLED, decidedAt: new Date() },
     });
     if (updated.count !== 1) throw new ConflictException('Esta solicitação já foi decidida');
-    await this.audit.log({ userId: staff.id, action: 'REDEMPTION_CANCELLED', entity: 'Redemption', entityId: id, ip: ctx.ip });
+    await this.audit.log({ userId: staff.id, action: 'REDEMPTION_CANCELLED', entity: 'Redemption', entityId: id, metadata: { storeId: base.storeId, customerId: base.customerId, discountCents: base.discountCents }, ip: ctx.ip });
     return this.findForStaff(id, staff);
   }
 

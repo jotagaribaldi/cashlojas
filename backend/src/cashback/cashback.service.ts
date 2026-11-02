@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { CreditStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -9,7 +10,10 @@ type Db = Prisma.TransactionClient | PrismaService;
 export class CashbackService {
   private readonly logger = new Logger('Cashback');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async lockCustomer(tx: Prisma.TransactionClient, customerId: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${customerId}))`;
@@ -39,11 +43,32 @@ export class CashbackService {
 
   @Cron('0 5 3 * * *')
   async expireCredits(): Promise<number> {
-    const result = await this.prisma.cashbackCredit.updateMany({
-      where: { status: CreditStatus.ACTIVE, expiresAt: { lte: new Date() } },
-      data: { status: CreditStatus.EXPIRED },
+    const now = new Date();
+    const due = await this.prisma.cashbackCredit.findMany({
+      where: { status: CreditStatus.ACTIVE, expiresAt: { lte: now } },
+      select: { id: true, customerId: true, storeId: true, remainingCents: true, amountCents: true, expiresAt: true },
     });
-    if (result.count) this.logger.log(`${result.count} crédito(s) de cashback expirado(s)`);
-    return result.count;
+    let count = 0;
+    for (const c of due) {
+      await this.prisma.$transaction(async (tx) => {
+        const r = await tx.cashbackCredit.updateMany({ where: { id: c.id, status: CreditStatus.ACTIVE }, data: { status: CreditStatus.EXPIRED } });
+        if (!r.count) return;
+        count++;
+        await this.audit.log(
+          {
+            userId: null,
+            role: 'SYSTEM',
+            storeId: c.storeId,
+            action: 'CASHBACK_EXPIRED',
+            entity: 'CashbackCredit',
+            entityId: c.id,
+            metadata: { customerId: c.customerId, expiredCents: c.remainingCents, originalCents: c.amountCents, expiresAt: c.expiresAt.toISOString() },
+          },
+          tx,
+        );
+      });
+    }
+    if (count) this.logger.log(`${count} crédito(s) de cashback expirado(s)`);
+    return count;
   }
 }

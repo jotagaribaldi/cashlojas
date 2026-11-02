@@ -15,7 +15,7 @@ import {
   Min,
 } from 'class-validator';
 import { Role } from '@prisma/client';
-import { PaginationQuery } from '../common/pagination';
+import { DateRangeQuery, PaginationQuery } from '../common/pagination';
 import { NormalizeEmail, OnlyDigits, Sanitize } from '../common/utils/sanitize';
 import { StrongPassword } from '../common/utils/password-policy';
 
@@ -188,4 +188,32 @@ export class ListStoresQuery extends PaginationQuery {
   @IsOptional()
   @IsUUID('4')
   groupId?: string;
+}
+
+export class AuditLogsQuery extends DateRangeQuery {
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  @IsOptional()
+  @IsIn(['SUCCESS', 'FAILURE', 'DENIED', 'ERROR'])
+  outcome?: string;
+
+  @IsOptional()
+  @IsIn(['business', 'http', 'all'])
+  kind?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  action?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  entityId?: string;
 }

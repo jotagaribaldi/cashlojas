@@ -26,6 +26,14 @@ export class CustomersService {
     return phone;
   }
 
+  openRedemptionRequests(storeId: string) {
+    return this.prisma.redemptionRequest.findMany({
+      where: { storeId, status: 'OPEN' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, createdAt: true, customer: { select: { id: true, name: true, phone: true } } },
+    });
+  }
+
   async lookup(rawPhone: string, staff: AuthUser) {
     const storeId = staff.storeId!;
     const phone = this.requirePhone(rawPhone);

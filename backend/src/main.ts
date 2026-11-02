@@ -5,6 +5,8 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { auditMiddleware } from './audit/audit.middleware';
+import { AuditService } from './audit/audit.service';
 import { Env } from './config/env';
 
 async function bootstrap() {
@@ -29,6 +31,7 @@ async function bootstrap() {
     }),
   );
   app.use(cookieParser());
+  app.use(auditMiddleware(app.get(AuditService)));
 
   const origins = config
     .get('CORS_ORIGINS', { infer: true })

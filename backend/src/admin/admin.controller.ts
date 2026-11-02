@@ -5,6 +5,7 @@ import { PaginationQuery } from '../common/pagination';
 import { AuthUser, RequestContext } from '../common/types';
 import { AdminService } from './admin.service';
 import {
+  AuditLogsQuery,
   CreateGroupDto,
   CreateStoreDto,
   CreateUserDto,
@@ -110,7 +111,12 @@ export class AdminController {
   }
 
   @Get('audit-logs')
-  auditLogs(@Query() q: PaginationQuery) {
-    return this.admin.auditLogs(q.page, q.pageSize, q.search);
+  auditLogs(@Query() q: AuditLogsQuery) {
+    return this.admin.auditLogs(q);
+  }
+
+  @Get('audit-logs/actions')
+  auditActions() {
+    return this.admin.auditActions();
   }
 }

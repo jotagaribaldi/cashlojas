@@ -21,6 +21,12 @@ enum CreditStatus {
   EXPIRED
 }
 
+enum RedemptionRequestStatus {
+  OPEN
+  ATTENDED
+  CANCELLED
+}
+
 enum RedemptionStatus {
   PENDING
   APPROVED
@@ -64,6 +70,7 @@ model Store {
   purchases            Purchase[]
   credits              CashbackCredit[]
   redemptions          Redemption[]
+  redemptionRequests   RedemptionRequest[]
 
   @@index([groupId])
   @@map("stores")
@@ -130,6 +137,7 @@ model Customer {
   redemptions Redemption[]
   notifications Notification[]
   activationTokens ActivationToken[]
+  redemptionRequests RedemptionRequest[]
 
   @@map("customers")
 }
@@ -252,17 +260,45 @@ model Notification {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String?  @db.Uuid
-  action    String   @db.VarChar(80)
-  entity    String   @db.VarChar(60)
-  entityId  String?  @db.VarChar(60)
-  metadata  Json?
-  ip        String?  @db.VarChar(64)
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @db.Uuid
+  role       String?  @db.VarChar(20)
+  storeId    String?  @db.Uuid
+  action     String   @db.VarChar(80)
+  entity     String   @db.VarChar(60)
+  entityId   String?  @db.VarChar(60)
+  outcome    String   @default("SUCCESS") @db.VarChar(20)
+  method     String?  @db.VarChar(10)
+  path       String?  @db.VarChar(255)
+  statusCode Int?
+  durationMs Int?
+  error      String?  @db.VarChar(500)
+  metadata   Json?
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(255)
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([outcome, createdAt])
+  @@index([storeId, createdAt])
   @@map("audit_logs")
+}
+
+model RedemptionRequest {
+  id         String                  @id @default(uuid()) @db.Uuid
+  customerId String                  @db.Uuid
+  storeId    String                  @db.Uuid
+  status     RedemptionRequestStatus @default(OPEN)
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  customer   Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  store      Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+  @@index([customerId])
+  @@map("redemption_requests")
 }

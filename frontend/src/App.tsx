@@ -4,7 +4,7 @@ import { AppShell } from './components/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminStoresPage, AdminUsersPage } from './pages/AdminPages';
 import { CashierPage } from './pages/CashierPage';
-import { CustomersPage, CustomerCreditsPage, CustomerStoresPage } from './pages/CustomerPages';
+import { CustomersPage, CustomerCreditsPage, CustomerStoresPage, CustomerPurchasesPage, RankingPage } from './pages/CustomerPages';
 import { PurchasesPage, ReceiptPage, RedemptionsPage } from './pages/ActivityPages';
 import { CustomerDashboard, StaffDashboard } from './pages/DashboardPage';
 import { ActivatePage, LoginPage, RegisterPage } from './pages/AuthPages';
@@ -22,6 +22,7 @@ export default function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
+    <Route path="/cadastro/:storeId" element={<RegisterPage />} />
     <Route path="/ativar" element={<ActivatePage />} />
     <Route element={<ProtectedRoute roles={all} />}>
       <Route element={<AppShell />}>
@@ -54,6 +55,8 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route path="credits" element={<CustomerCreditsPage />} />
         <Route path="stores" element={<CustomerStoresPage />} />
+        <Route path="my-purchases" element={<CustomerPurchasesPage />} />
+        <Route path="ranking" element={<RankingPage />} />
       </Route>
     </Route>
     <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />

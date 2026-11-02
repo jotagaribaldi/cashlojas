@@ -18,6 +18,12 @@ export class CustomersController {
   }
 
   @Roles(Role.CASHIER, Role.MANAGER)
+  @Get('redemption-requests')
+  redemptionRequests(@CurrentUser() user: AuthUser) {
+    return this.customers.openRedemptionRequests(user.storeId!);
+  }
+
+  @Roles(Role.CASHIER, Role.MANAGER)
   @Get('lookup')
   lookup(@CurrentUser() user: AuthUser, @Query() q: LookupCustomerDto) {
     return this.customers.lookup(q.phone, user);

@@ -50,10 +50,11 @@ export class AuthService implements OnModuleInit {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
       await argon2.verify(this.dummyHash, password).catch(() => false);
+      await this.audit.log({ action: 'LOGIN_FAILED', entity: 'User', outcome: 'DENIED', error: 'E-mail não cadastrado', metadata: { email }, ip: ctx.ip, userAgent: ctx.userAgent });
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      await this.audit.log({ userId: user.id, action: 'LOGIN_BLOCKED', entity: 'User', entityId: user.id, ip: ctx.ip });
+      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN_BLOCKED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Conta bloqueada', ip: ctx.ip, userAgent: ctx.userAgent });
       throw new UnauthorizedException('Conta temporariamente bloqueada por excesso de tentativas. Tente mais tarde.');
     }
 
@@ -79,10 +80,15 @@ export class AuthService implements OnModuleInit {
       });
       await this.audit.log({
         userId: user.id,
+        role: user.role,
+        storeId: user.storeId,
         action: lock ? 'ACCOUNT_LOCKED' : 'LOGIN_FAILED',
         entity: 'User',
         entityId: user.id,
+        outcome: 'DENIED',
+        error: 'Senha incorreta',
         ip: ctx.ip,
+        userAgent: ctx.userAgent,
       });
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
@@ -98,7 +104,7 @@ export class AuthService implements OnModuleInit {
     const user = await this.verifyCredentials(dto.email, dto.password, ctx);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const issued = await this.tokens.issue(user, ctx);
-    await this.audit.log({ userId: user.id, action: 'LOGIN', entity: 'User', entityId: user.id, ip: ctx.ip });
+    await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN', entity: 'User', entityId: user.id, ip: ctx.ip, userAgent: ctx.userAgent });
     return { ...issued, user: publicUser(user) };
   }
 
@@ -141,7 +147,7 @@ export class AuthService implements OnModuleInit {
         });
       }
       await this.audit.log(
-        { userId: created.id, action: 'CUSTOMER_REGISTERED', entity: 'Customer', entityId: customer.id, ip: ctx.ip },
+        { userId: created.id, role: Role.CUSTOMER, action: 'CUSTOMER_REGISTERED', entity: 'Customer', entityId: customer.id, metadata: { storeIds, linkedExistingCustomer: !!existing }, ip: ctx.ip, userAgent: ctx.userAgent },
         tx,
       );
       return created;
@@ -159,7 +165,10 @@ export class AuthService implements OnModuleInit {
   }
 
   async logout(refreshToken: string | undefined) {
-    if (refreshToken) await this.tokens.revoke(refreshToken);
+    if (refreshToken) {
+      const userId = await this.tokens.revoke(refreshToken);
+      if (userId) await this.audit.log({ userId, action: 'LOGOUT', entity: 'User', entityId: userId });
+    }
   }
 
   async logoutAll(userId: string, ctx?: RequestContext) {

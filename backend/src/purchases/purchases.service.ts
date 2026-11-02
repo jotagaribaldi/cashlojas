@@ -108,11 +108,24 @@ export class PurchasesService {
             action: 'PURCHASE_REGISTERED',
             entity: 'Purchase',
             entityId: purchase.id,
-            metadata: { amountCents, cashbackCents, fiscalDocument: dto.fiscalDocument },
+            metadata: { storeId, customerId: customer.id, amountCents, cashbackCents, fiscalDocument: dto.fiscalDocument, purchaseDate, balanceAfterCents: balanceCents },
             ip,
           },
           tx,
         );
+        if (cashbackCents > 0) {
+          await this.audit.log(
+            {
+              userId: staff.id,
+              action: 'CASHBACK_CREDITED',
+              entity: 'Customer',
+              entityId: customer.id,
+              metadata: { storeId, purchaseId: purchase.id, cashbackCents, percentBps: store.cashbackPercentBps, expiresAt: expiresAt.toISOString(), balanceAfterCents: balanceCents },
+              ip,
+            },
+            tx,
+          );
+        }
         return { purchase, balanceCents };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 10_000 },

@@ -14,6 +14,8 @@ const links: NavItem[] = [
   { label: 'Compras', to: '/purchases', icon: Wallet, roles: ['ROOT', 'CASHIER', 'MANAGER'] },
   { label: 'Resgates', to: '/redemptions', icon: TicketPercent, roles: ['ROOT', 'CASHIER', 'MANAGER', 'CUSTOMER'] },
   { label: 'Meus créditos', to: '/credits', icon: Wallet, roles: ['CUSTOMER'] },
+  { label: 'Minhas compras', to: '/my-purchases', icon: CreditCard, roles: ['CUSTOMER'] },
+  { label: 'Ranking', to: '/ranking', icon: TicketPercent, roles: ['CUSTOMER'] },
   { label: 'Lojas participantes', to: '/stores', icon: Store, roles: ['CUSTOMER'] },
   { label: 'Clientes', to: '/customers', icon: Users, roles: ['ROOT', 'CASHIER', 'MANAGER'] },
   { label: 'Lojas e grupos', to: '/admin/stores', icon: Store, roles: ['ROOT'] },

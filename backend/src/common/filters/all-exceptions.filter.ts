@@ -47,6 +47,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`${req.method} ${req.originalUrl} -> ${status}: ${JSON.stringify(message)}`);
     }
 
+    res.locals.auditError = (Array.isArray(message) ? message.join('; ') : message).slice(0, 500);
     res.status(status).json({
       statusCode: status,
       message,
