@@ -16,6 +16,7 @@ import { AuthUser, RequestContext } from '../common/types';
 import { formatBRL, toCents } from '../common/utils/money';
 import { maskPhone, normalizePhone } from '../common/utils/phone';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TelegramService } from '../notifications/telegram.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApproveWithCredentialsDto, CreateRedemptionDto } from './dto';
 
@@ -29,7 +30,7 @@ function authorizationCode(): string {
 }
 
 const listInclude = {
-  customer: { select: { id: true, name: true, phone: true } },
+  customer: { select: { id: true, name: true, phone: true, email: true } },
   cashier: { select: { id: true, name: true } },
   manager: { select: { id: true, name: true } },
 } satisfies Prisma.RedemptionInclude;
@@ -41,6 +42,7 @@ export class RedemptionsService {
     private readonly cashback: CashbackService,
     private readonly auth: AuthService,
     private readonly notifications: NotificationsService,
+    private readonly telegram: TelegramService,
     private readonly audit: AuditService,
   ) {}
 
@@ -214,12 +216,20 @@ export class RedemptionsService {
       customerId: result.updated.customerId,
       customerName: result.updated.customer.name,
       phone: result.updated.customer.phone,
+      email: result.updated.customer.email,
       storeName: result.updated.store.name,
       discountCents: result.updated.discountCents,
       balanceCents: result.balanceCents,
       authorizationCode: result.updated.authorizationCode!,
       decidedAt: result.updated.decidedAt!,
     });
+
+    this.notifications.notifyStaff({
+      storeId: result.updated.storeId,
+      subject: 'Resgate de cashback aprovado',
+      summary: `Resgate de ${formatBRL(result.updated.discountCents)} aprovado para ${result.updated.customer.name}. Autorização: ${result.updated.authorizationCode}.`,
+    });
+    this.telegram.notify('Resgate aprovado', `Desconto: ${formatBRL(result.updated.discountCents)} • Cliente: ${result.updated.customer.name} • Auth: ${result.updated.authorizationCode}`, { userName: manager.name, userRole: manager.role, storeName: result.updated.store.name, ip: ctx.ip });
 
     return this.receipt(id, manager);
   }
@@ -256,6 +266,12 @@ export class RedemptionsService {
     });
     if (updated.count !== 1) throw new ConflictException('Esta solicitação já foi decidida');
     await this.audit.log({ userId: manager.id, action: 'REDEMPTION_REJECTED', entity: 'Redemption', entityId: id, metadata: { storeId: base.storeId, customerId: base.customerId, discountCents: base.discountCents, note }, ip: ctx.ip });
+    this.notifications.notifyStaff({
+      storeId: base.storeId,
+      subject: 'Resgate de cashback rejeitado',
+      summary: `Resgate de ${formatBRL(base.discountCents)} rejeitado${note ? ` (${note})` : ''}.`,
+    });
+    this.telegram.notify('Resgate rejeitado', `Desconto: ${formatBRL(base.discountCents)}${note ? ` • Motivo: ${note}` : ''}`, { userName: manager.name, userRole: manager.role, ip: ctx.ip });
     return this.findForStaff(id, manager);
   }
 
@@ -270,6 +286,7 @@ export class RedemptionsService {
     });
     if (updated.count !== 1) throw new ConflictException('Esta solicitação já foi decidida');
     await this.audit.log({ userId: staff.id, action: 'REDEMPTION_CANCELLED', entity: 'Redemption', entityId: id, metadata: { storeId: base.storeId, customerId: base.customerId, discountCents: base.discountCents }, ip: ctx.ip });
+    this.telegram.notify('Resgate cancelado', `Desconto: ${formatBRL(base.discountCents)}`, { userName: staff.name, userRole: staff.role, ip: ctx.ip });
     return this.findForStaff(id, staff);
   }
 
@@ -278,7 +295,7 @@ export class RedemptionsService {
       where: { id },
       include: {
         store: { select: { id: true, name: true, cnpj: true, segment: true, group: { select: { name: true } } } },
-        customer: { select: { id: true, name: true, phone: true, userId: true } },
+        customer: { select: { id: true, name: true, phone: true, email: true, userId: true } },
         cashier: { select: { id: true, name: true } },
         manager: { select: { id: true, name: true, email: true } },
       },

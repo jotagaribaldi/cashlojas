@@ -34,6 +34,20 @@ export const envSchema = z.object({
   WHATSAPP_WAHA_BASE_URL: z.string().url().optional(),
   WHATSAPP_WAHA_API_KEY: z.string().optional(),
   WHATSAPP_WAHA_SESSION: z.string().min(1).default('default'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: bool.default(false),
+  SMTP_TLS_REJECT_UNAUTHORIZED: bool.default(true),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_CHAT_ID: z.string().optional(),
+  TELEGRAM_ENABLED: bool.default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_FROM_NAME: z.string().default('CashLojas'),
+  SMTP_FROM_EMAIL: z.string().email().optional(),
+  EMAIL_PROVIDER: z.enum(['log', 'smtp']).default('log'),
+  EMAIL_STAFF_NOTIFY: bool.default(true),
+
 });
 
 export type Env = z.infer<typeof envSchema>;

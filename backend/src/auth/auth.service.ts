@@ -13,6 +13,8 @@ import { RequestContext } from '../common/types';
 import { normalizePhone } from '../common/utils/phone';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { TelegramService } from '../notifications/telegram.service';
 import { ChangePasswordDto, LoginDto, RegisterCustomerDto } from './dto';
 import { TokenService } from './token.service';
 
@@ -39,6 +41,8 @@ export class AuthService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
+    private readonly telegram: TelegramService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -55,6 +59,7 @@ export class AuthService implements OnModuleInit {
     }
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN_BLOCKED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Conta bloqueada', ip: ctx.ip, userAgent: ctx.userAgent });
+      this.telegram.notify('Conta bloqueada', 'Excesso de tentativas de login', { userName: user.name, userRole: user.role, ip: ctx.ip });
       throw new UnauthorizedException('Conta temporariamente bloqueada por excesso de tentativas. Tente mais tarde.');
     }
 
@@ -78,18 +83,8 @@ export class AuthService implements OnModuleInit {
         });
         return true;
       });
-      await this.audit.log({
-        userId: user.id,
-        role: user.role,
-        storeId: user.storeId,
-        action: lock ? 'ACCOUNT_LOCKED' : 'LOGIN_FAILED',
-        entity: 'User',
-        entityId: user.id,
-        outcome: 'DENIED',
-        error: 'Senha incorreta',
-        ip: ctx.ip,
-        userAgent: ctx.userAgent,
-      });
+      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: lock ? 'ACCOUNT_LOCKED' : 'LOGIN_FAILED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Senha incorreta', ip: ctx.ip, userAgent: ctx.userAgent });
+      this.telegram.notify(lock ? 'Conta bloqueada' : 'Falha de login', `Tentativa de senha incorreta${lock ? ' — conta bloqueada' : ''}`, { userName: user.name, userRole: user.role, ip: ctx.ip });
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     if (!user.active) throw new UnauthorizedException('Usuário inativo');
@@ -105,6 +100,7 @@ export class AuthService implements OnModuleInit {
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const issued = await this.tokens.issue(user, ctx);
     await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN', entity: 'User', entityId: user.id, ip: ctx.ip, userAgent: ctx.userAgent });
+    this.telegram.notify('Login realizado', `Acesso à aplicação`, { userName: user.name, userRole: user.role, ip: ctx.ip });
     return { ...issued, user: publicUser(user) };
   }
 
@@ -154,6 +150,31 @@ export class AuthService implements OnModuleInit {
     });
 
     const issued = await this.tokens.issue(user, ctx);
+    this.telegram.notify('Novo cliente cadastrado', `Cliente: ${dto.name} • E-mail: ${dto.email}${storeIds.length ? ` • Lojas: ${storeIds.length}` : ''}`, { userRole: 'CUSTOMER', ip: ctx.ip });
+
+    if (storeIds.length === 1) {
+      const store = await this.prisma.store.findUnique({ where: { id: storeIds[0] }, select: { name: true } });
+      if (store) {
+        this.notifications.notifyWelcome({
+          customerId: user.id,
+          customerName: dto.name,
+          phone,
+          email: dto.email,
+          storeName: store.name,
+          activationUrl: this.config.get('APP_PUBLIC_URL', { infer: true }),
+        });
+      }
+    } else {
+      this.notifications.notifyWelcome({
+        customerId: user.id,
+        customerName: dto.name,
+        phone,
+        email: dto.email,
+        storeName: 'programa de cashback',
+        activationUrl: this.config.get('APP_PUBLIC_URL', { infer: true }),
+      });
+    }
+
     return { ...issued, user: publicUser(user) };
   }
 

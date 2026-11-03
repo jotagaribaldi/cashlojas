@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ActivationService } from '../auth/activation.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TelegramService } from '../notifications/telegram.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types';
@@ -18,6 +19,7 @@ export class CustomersService {
     private readonly audit: AuditService,
     private readonly activation: ActivationService,
     private readonly notifications: NotificationsService,
+    private readonly telegram: TelegramService,
   ) {}
 
   requirePhone(raw: string): string {
@@ -97,11 +99,12 @@ export class CustomersService {
       data: { name: dto.name, phone, rg: dto.rg, email: dto.email, enrollments: { create: { storeId } } },
     });
     await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CREATED_AT_COUNTER', entity: 'Customer', entityId: customer.id, ip });
+    this.telegram.notify('Cliente cadastrado no caixa', `Cliente: ${customer.name} • Tel: ${customer.phone}`, { userName: staff.name, userRole: staff.role, ip });
     await this.sendWelcome(customer, storeId);
     return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, alreadyRegistered: false };
   }
 
-  private async sendWelcome(customer: { id: string; name: string; phone: string }, storeId: string) {
+  private async sendWelcome(customer: { id: string; name: string; phone: string; email: string }, storeId: string) {
     try {
       const store = await this.prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { name: true } });
       const activationUrl = await this.activation.issueLink(customer.id);
@@ -109,6 +112,7 @@ export class CustomersService {
         customerId: customer.id,
         customerName: customer.name,
         phone: customer.phone,
+        email: customer.email,
         storeName: store.name,
         activationUrl,
       });
@@ -120,7 +124,7 @@ export class CustomersService {
   async resendWelcome(customerId: string, staff: AuthUser, ip?: string) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, enrollments: { some: { storeId: staff.storeId! } } },
-      select: { id: true, name: true, phone: true, userId: true },
+      select: { id: true, name: true, phone: true, email: true, userId: true },
     });
     if (!customer) throw new NotFoundException('Cliente não encontrado nesta loja');
     if (customer.userId) throw new ConflictException('Este cliente já ativou o acesso.');

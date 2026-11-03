@@ -20,6 +20,7 @@ import { CustomersService } from './customers/customers.service';
 import { MeController } from './me/me.controller';
 import { MeService } from './me/me.service';
 import { NotificationsModule } from './notifications/notifications.module';
+import { TelegramModule } from './notifications/telegram.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { PurchasesController } from './purchases/purchases.controller';
 import { PurchasesService } from './purchases/purchases.service';
@@ -37,6 +38,7 @@ import { TeamController } from './team/team.controller';
     AuditModule,
     AuthModule,
     NotificationsModule,
+    TelegramModule,
   ],
   controllers: [
     AdminController,

@@ -2,6 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CreditStatus, Prisma, RedemptionRequestStatus, RedemptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { TelegramService } from '../notifications/telegram.service';
+import { formatBRL } from '../common/utils/money';
 import { UpdateProfileDto } from './dto';
 
 @Injectable()
@@ -9,6 +11,7 @@ export class MeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly telegram: TelegramService,
   ) {}
 
   private async customerFor(userId: string) {
@@ -176,6 +179,7 @@ export class MeService {
       create: { customerId: customer.id, storeId },
     });
     await this.audit.log({ userId, action: 'CUSTOMER_SELF_ENROLLED', entity: 'Customer', entityId: customer.id, storeId, metadata: { storeId } });
+    this.telegram.notify('Cliente vinculado a loja', `Cliente: ${customer.name} se vinculou a uma loja via QR/app`, { userRole: 'CUSTOMER' });
     return { enrolled: true };
   }
 
@@ -207,6 +211,7 @@ export class MeService {
     if (!(balance._sum.remainingCents ?? 0)) throw new ConflictException('Você não possui saldo disponível nesta loja');
     const created = await this.prisma.redemptionRequest.create({ data: { customerId: customer.id, storeId }, select: { id: true } });
     await this.audit.log({ userId, action: 'REDEMPTION_REQUEST_CREATED', entity: 'RedemptionRequest', entityId: created.id, storeId, metadata: { customerId: customer.id, storeId, balanceCents: balance._sum.remainingCents ?? 0 } });
+    this.telegram.notify('Resgate solicitado', `Cliente solicitou resgate • Saldo: ${formatBRL(balance._sum.remainingCents ?? 0)}`, { userRole: 'CUSTOMER' });
     return created;
   }
 

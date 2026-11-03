@@ -246,7 +246,7 @@ model Notification {
   id         String             @id @default(uuid()) @db.Uuid
   customerId String             @db.Uuid
   channel    String             @default("WHATSAPP") @db.VarChar(20)
-  to         String             @db.VarChar(20)
+  to         String             @db.VarChar(255)
   body       String
   status     NotificationStatus @default(PENDING)
   error      String?

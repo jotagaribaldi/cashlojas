@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { Prisma, RedemptionStatus, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
+import { TelegramService } from '../notifications/telegram.service';
 import { AuthUser } from '../common/types';
 import { endOfDayInOffset } from '../common/utils/dates';
 import { Env } from '../config/env';
@@ -16,6 +17,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly telegram: TelegramService,
   ) {}
 
   listGroups() {
@@ -30,6 +32,7 @@ export class AdminService {
     if (exists) throw new ConflictException('Já existe um grupo com este identificador');
     const group = await this.prisma.group.create({ data: { name: dto.name, slug: dto.slug } });
     await this.audit.log({ userId: actor.id, action: 'GROUP_CREATED', entity: 'Group', entityId: group.id, metadata: { name: group.name, slug: group.slug }, ip });
+    this.telegram.notify('Grupo criado', `${group.name} (${group.slug})`, { userName: actor.name, userRole: actor.role });
     return group;
   }
 
@@ -46,6 +49,7 @@ export class AdminService {
     if (stores > 0) throw new ConflictException('Remova ou transfira as lojas do grupo antes de excluí-lo');
     const deleted = await this.prisma.group.delete({ where: { id } });
     await this.audit.log({ userId: actor.id, action: 'GROUP_DELETED', entity: 'Group', entityId: id, metadata: { name: deleted.name, slug: deleted.slug }, ip });
+    this.telegram.notify('Grupo excluído', `${deleted.name} (${deleted.slug})`, { userName: actor.name, userRole: actor.role });
   }
 
   async listStores(groupId: string | undefined, search: string | undefined, page: number, pageSize: number) {
@@ -84,6 +88,7 @@ export class AdminService {
       },
     });
     await this.audit.log({ userId: actor.id, action: 'STORE_CREATED', entity: 'Store', entityId: store.id, metadata: { ...store } as unknown as Prisma.InputJsonValue, ip });
+    this.telegram.notify('Loja criada', `${store.name} • Segmento: ${store.segment}`, { userName: actor.name, userRole: actor.role });
     return store;
   }
 

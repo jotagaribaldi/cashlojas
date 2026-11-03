@@ -12,10 +12,11 @@ import { calculateCashback } from '../cashback/cashback.calculator';
 import { CashbackService } from '../cashback/cashback.service';
 import { AuthUser } from '../common/types';
 import { addDaysToDateString, endOfDayInOffset, todayInOffset } from '../common/utils/dates';
-import { toCents } from '../common/utils/money';
+import { formatBRL, toCents } from '../common/utils/money';
 import { normalizePhone } from '../common/utils/phone';
 import { Env } from '../config/env';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TelegramService } from '../notifications/telegram.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto';
 
@@ -27,6 +28,7 @@ export class PurchasesService {
     private readonly prisma: PrismaService,
     private readonly cashback: CashbackService,
     private readonly notifications: NotificationsService,
+    private readonly telegram: TelegramService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
   ) {}
@@ -135,6 +137,7 @@ export class PurchasesService {
       customerId: customer.id,
       customerName: customer.name,
       phone: customer.phone,
+      email: customer.email,
       storeName: store.name,
       purchaseDate,
       amountCents,
@@ -142,6 +145,13 @@ export class PurchasesService {
       balanceCents: result.balanceCents,
       expiresAt,
     });
+
+    this.notifications.notifyStaff({
+      storeId,
+      subject: 'Nova compra registrada',
+      summary: `Compra de ${formatBRL(amountCents)} registrada para ${customer.name}. Cashback: ${formatBRL(cashbackCents)}.`,
+    });
+    this.telegram.notify('Compra registrada', `Valor: ${formatBRL(amountCents)} • Cashback: ${formatBRL(cashbackCents)} • Cliente: ${customer.name}`, { userName: staff.name, userRole: staff.role, storeName: store.name, ip });
 
     return {
       id: result.purchase.id,
