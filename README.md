@@ -45,6 +45,25 @@ Requer Docker Engine com Compose v2. O ambiente desta sessão não possui Docker
 
 A senha ROOT é validada por política: 10–128 caracteres, contendo maiúscula, minúscula, número e caractere especial. A imagem usa usuário sem privilégios, instala migrations no startup e persiste PostgreSQL no volume `postgres_data`.
 
+### Deploy estático atrás de Apache
+
+O build do frontend usa rotas do React Router (`/cadastro/:storeId`, `/login`, `/admin/stores` etc.), então o servidor precisa devolver `index.html` para qualquer caminho que não seja um arquivo real. O `frontend/public/.htaccess` é copiado para `dist/` pelo Vite e resolve isso quando o vhost permite `AllowOverride`. Se o vhost estiver com `AllowOverride None`, aplique o fallback direto na configuração do Apache:
+
+```apache
+DocumentRoot /caminho/para/frontend/dist
+<Directory /caminho/para/frontend/dist>
+  Options -MultiViews
+  AllowOverride None
+  Require all granted
+  FallbackResource /index.html
+</Directory>
+
+ProxyPass        /api/ http://127.0.0.1:3000/api/
+ProxyPassReverse /api/ http://127.0.0.1:3000/api/
+```
+
+Confirme com `curl -o /dev/null -w "%{http_code}\n" https://seu-dominio/cadastro/<id-da-loja>`: deve retornar `200` com `content-type: text/html`.
+
 ### Dados de demonstração (opcional)
 
 Depois que o banco/API estiver iniciado, defina `SEED_DEMO_PASSWORD` no arquivo local `.env` (não use senha real em argumentos de terminal). No ambiente de desenvolvimento com as dependências instaladas:
