@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import './receipt.css';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, FileText, Printer, TicketPercent } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileText, Handshake, Printer, TicketPercent } from 'lucide-react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Badge, Button, Card, EmptyState, ErrorMessage, LoadingState, PageTitle, SearchBox, Table, useToast } from '../components/ui';
 import { api } from '../lib/api';
-import { date, dateTime, money } from '../lib/format';
+import { date, dateTime, money, percent } from '../lib/format';
 
 interface PurchaseItem { id: string; customer: { id: string; name: string; phone: string }; cashier: { name: string }; fiscalDocument: string; amountCents: number; cashbackCents: number; purchaseDate: string; credit?: { expiresAt: string; status: string; remainingCents: number } | null }
 interface RedemptionItem { id: string; authorizationCode?: string | null; status?: string; customer?: { id: string; name: string; phone: string }; store?: { name: string }; cashier?: { name: string }; manager?: { name: string } | null; fiscalDocument?: string; purchaseAmountCents?: number; discountCents: number; createdAt?: string; decidedAt?: string | null }
@@ -19,8 +19,24 @@ export function PurchasesPage() {
   return <><PageTitle eyebrow="MOVIMENTAÇÕES" title="Compras registradas" description="Acompanhe vendas, créditos gerados e validade do cashback." action={user?.role !== 'ROOT' ? <Link to="/cashier" className="btn btn-primary">Abrir caixa <ArrowRight size={15} /></Link> : undefined} /><Card className="table-card"><div className="table-toolbar"><div><strong>Histórico de compras</strong><small>{query.data?.total ?? '—'} registros encontrados</small></div><SearchBox value={search} onChange={setSearch} placeholder="Cliente, celular ou nota fiscal" /></div>{query.isLoading ? <LoadingState /> : query.isError ? <ErrorMessage message="Falha ao carregar compras." onRetry={() => void query.refetch()} /> : query.data?.items.length ? <Table><thead><tr><th>CLIENTE</th><th>NOTA FISCAL</th><th>DATA</th><th>VALOR DA COMPRA</th><th>CASHBACK GERADO</th><th>VALIDADE</th></tr></thead><tbody>{query.data.items.map((p) => <tr key={p.id}><td><div className="table-primary">{p.customer.name}</div><div className="table-secondary">{p.customer.phone}</div></td><td><span className="mono">{p.fiscalDocument}</span></td><td>{date(p.purchaseDate)}</td><td className="amount-cell">{money(p.amountCents)}</td><td><span className="amount-positive">+{money(p.cashbackCents)}</span></td><td>{p.credit ? <Badge tone={p.credit.status === 'ACTIVE' ? 'green' : p.credit.status === 'EXPIRED' ? 'red' : 'neutral'}>{p.credit.status === 'ACTIVE' ? `Até ${date(p.credit.expiresAt)}` : p.credit.status === 'EXPIRED' ? 'Expirado' : 'Utilizado'}</Badge> : <span className="muted">—</span>}</td></tr>)}</tbody></Table> : <EmptyState title="Nenhuma compra encontrada" description="As compras registradas aparecerão aqui." icon={<FileText size={22} />} />}</Card></>;
 }
 
-const statusLabel: Record<string, string> = { PENDING: 'Pendente', APPROVED: 'Aprovado', REJECTED: 'Recusado', CANCELLED: 'Cancelado' };
-const statusTone: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = { PENDING: 'amber', APPROVED: 'green', REJECTED: 'red', CANCELLED: 'neutral' };
+interface CommissionItem { id: string; amountCents: number; percentBps: number; status: 'PENDING' | 'PAID'; paidAt: string | null; createdAt: string; professional: { id: string; name: string; phone: string }; purchase: { id: string; fiscalDocument: string; purchaseDate: string; amountCents: number; customer: { id: string; name: string } }; paidBy: { name: string } | null }
+interface CommissionPage extends Page<CommissionItem> { pendingCents: number; pendingCount: number; paidCents: number; paidCount: number }
+
+export function CommissionsPage() {
+  const qc = useQueryClient();
+  const { toast, show, close } = useToast();
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const query = useQuery({ queryKey: ['commissions', status, search], queryFn: () => api<CommissionPage>(`/commissions?pageSize=50${status ? `&status=${status}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`) });
+  const pay = useMutation({
+    mutationFn: (id: string) => api(`/commissions/${id}/pay`, { method: 'POST' }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['commissions'] }); show('Pagamento de comissão registrado.'); },
+    onError: (e) => show(e instanceof Error ? e.message : 'Não foi possível registrar o pagamento.', 'error'),
+  });
+  return <><PageTitle eyebrow="INDICAÇÕES DE PROFISSIONAIS" title="Comissões" description="Comissões geradas por profissionais que indicaram clientes para a loja." /><Card><div className="rank-hero"><div><small>A PAGAR</small><strong>{money(query.data?.pendingCents ?? 0)}</strong><small>{query.data?.pendingCount ?? 0} comissões pendentes</small></div><div><small>JÁ PAGO</small><strong>{money(query.data?.paidCents ?? 0)}</strong><small>{query.data?.paidCount ?? 0} comissões pagas</small></div></div></Card><Card className="table-card"><div className="table-toolbar"><div><strong>Extrato de comissões</strong><small>{query.data?.total ?? '—'} registros</small></div><div className="row-actions"><SearchBox value={search} onChange={setSearch} placeholder="Profissional, cliente ou nota" /><select className="filter-select" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Todos os status</option><option value="PENDING">A pagar</option><option value="PAID">Pagas</option></select></div></div>{query.isLoading ? <LoadingState /> : query.isError ? <ErrorMessage message="Falha ao carregar comissões." onRetry={() => void query.refetch()} /> : query.data?.items.length ? <Table minWidth="900px"><thead><tr><th>PROFISSIONAL</th><th>CLIENTE INDICADO</th><th>NOTA FISCAL</th><th>DATA</th><th>VALOR DA COMPRA</th><th>COMISSÃO</th><th>STATUS</th><th>AÇÕES</th></tr></thead><tbody>{query.data.items.map((c) => <tr key={c.id}><td><div className="table-primary">{c.professional.name}</div><div className="table-secondary">{c.professional.phone}</div></td><td>{c.purchase.customer.name}</td><td><span className="mono">{c.purchase.fiscalDocument}</span></td><td>{date(c.purchase.purchaseDate)}</td><td className="amount-cell">{money(c.purchase.amountCents)}</td><td className="amount-positive">+{money(c.amountCents)}<div className="table-secondary">{percent(c.percentBps)}</div></td><td><Badge tone={c.status === 'PAID' ? 'green' : 'amber'}>{c.status === 'PAID' ? `Pago em ${date(c.paidAt)}` : 'A pagar'}</Badge>{c.paidBy && <div className="table-secondary">por {c.paidBy.name}</div>}</td><td>{c.status === 'PENDING' ? <Button size="sm" loading={pay.isPending} onClick={() => { if (confirm(`Registrar o pagamento de ${money(c.amountCents)} para ${c.professional.name}?`)) pay.mutate(c.id); }}>Registrar pagamento</Button> : <span className="muted">—</span>}</td></tr>)}</tbody></Table> : <EmptyState title="Nenhuma comissão registrada" description="Comissões aparecem quando uma compra é registrada com indicação de profissional." icon={<Handshake size={22} />} />}</Card>{toast && <div className="toast-holder"><div className={`toast toast-${toast.type}`}>{toast.message}<button onClick={close}>×</button></div></div>}</>;
+}
+
+const statusLabel: Record<string, string> = { PENDING: 'Pendente', APPROVED: 'Aprovado', REJECTED: 'Recusado', CANCELLED: 'Cancelado' };const statusTone: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = { PENDING: 'amber', APPROVED: 'green', REJECTED: 'red', CANCELLED: 'neutral' };
 
 export function RedemptionsPage() {
   const { user } = useAuth();

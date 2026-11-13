@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Length, MaxLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { NormalizeEmail, OnlyDigits, Sanitize } from '../common/utils/sanitize';
 
 export class LookupCustomerDto {
@@ -28,4 +28,21 @@ export class CreateCustomerDto {
   @IsEmail({}, { message: 'E-mail inválido' })
   @MaxLength(160)
   email: string;
+}
+
+export class UpdateProfessionalDto {
+  @IsBoolean()
+  isProfessional: boolean;
+
+  @IsOptional()
+  @Sanitize()
+  @IsString()
+  @Length(2, 80, { message: 'Profissão deve ter entre 2 e 80 caracteres' })
+  profession?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Comissão inválida' })
+  @Min(0, { message: 'A comissão não pode ser negativa' })
+  @Max(100, { message: 'A comissão não pode passar de 100%' })
+  commissionPercent?: number;
 }

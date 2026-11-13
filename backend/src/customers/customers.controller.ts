@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser, ReqContext, Roles } from '../common/decorators';
 import { PaginationQuery } from '../common/pagination';
 import { AuthUser, RequestContext } from '../common/types';
 import { CustomersService } from './customers.service';
-import { CreateCustomerDto, LookupCustomerDto } from './dto';
+import { CreateCustomerDto, LookupCustomerDto, UpdateProfessionalDto } from './dto';
 
 @Controller('customers')
 export class CustomersController {
@@ -27,6 +27,23 @@ export class CustomersController {
   @Get('lookup')
   lookup(@CurrentUser() user: AuthUser, @Query() q: LookupCustomerDto) {
     return this.customers.lookup(q.phone, user);
+  }
+
+  @Roles(Role.CASHIER, Role.MANAGER)
+  @Get('professionals')
+  professionals(@CurrentUser() user: AuthUser, @Query() q: PaginationQuery) {
+    return this.customers.professionals(user.storeId!, q.search);
+  }
+
+  @Roles(Role.MANAGER)
+  @Patch(':id/professional')
+  setProfessional(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateProfessionalDto,
+    @ReqContext() ctx: RequestContext,
+  ) {
+    return this.customers.setProfessional(id, dto, user, ctx.ip);
   }
 
   @Roles(Role.CASHIER, Role.MANAGER)

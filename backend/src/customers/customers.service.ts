@@ -5,9 +5,10 @@ import { TelegramService } from '../notifications/telegram.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types';
+import { formatBRL } from '../common/utils/money';
 import { normalizePhone } from '../common/utils/phone';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateCustomerDto } from './dto';
+import { CreateCustomerDto, UpdateProfessionalDto } from './dto';
 
 @Injectable()
 export class CustomersService {
@@ -41,7 +42,12 @@ export class CustomersService {
     const phone = this.requirePhone(rawPhone);
     const customer = await this.prisma.customer.findUnique({
       where: { phone },
-      include: { enrollments: { where: { storeId }, select: { enrolledAt: true } } },
+      include: {
+        enrollments: {
+          where: { storeId },
+          select: { enrolledAt: true, isProfessional: true, profession: true, commissionPercentBps: true },
+        },
+      },
     });
     if (!customer) throw new NotFoundException('Cliente não encontrado. Peça para o cliente se cadastrar.');
 
@@ -51,10 +57,16 @@ export class CustomersService {
     });
     const credits = await this.cashback.activeCredits(customer.id, storeId);
     const balanceCents = credits.reduce((acc, c) => acc + c.remainingCents, 0);
+    const enrollment = customer.enrollments[0];
 
     return {
       customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email },
       enrolled: customer.enrollments.length > 0,
+      professional: {
+        isProfessional: enrollment?.isProfessional ?? false,
+        profession: enrollment?.profession ?? null,
+        commissionPercentBps: enrollment?.commissionPercentBps ?? 0,
+      },
       store,
       balanceCents,
       credits,
@@ -64,6 +76,10 @@ export class CustomersService {
   async createAtCounter(dto: CreateCustomerDto, staff: AuthUser, ip?: string) {
     const storeId = staff.storeId!;
     const phone = this.requirePhone(dto.phone);
+    const store = await this.prisma.store.findUniqueOrThrow({
+      where: { id: storeId },
+      select: { id: true, groupId: true, signupBonusCents: true, validityDays: true },
+    });
     const existing = await this.prisma.customer.findUnique({
       where: { phone },
       include: { enrollments: { select: { storeId: true, store: { select: { groupId: true } } } } },
@@ -73,18 +89,29 @@ export class CustomersService {
       if (existing.enrollments.some((e) => e.storeId === storeId)) {
         throw new ConflictException('Este cliente já está cadastrado nesta loja.');
       }
-      const store = await this.prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { groupId: true } });
       if (!existing.enrollments.some((e) => e.store.groupId === store.groupId)) {
         throw new ConflictException('Já existe um cliente com este telefone em outra rede e ele não pode ser vinculado a esta loja. Peça para o cliente entrar em contato com o suporte.');
       }
-      await this.prisma.customerStore.create({ data: { customerId: existing.id, storeId } });
-      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: existing.id, ip });
+      const bonusCents = await this.prisma.$transaction(async (tx) => {
+        await tx.customerStore.create({ data: { customerId: existing.id, storeId } });
+        const granted = await this.cashback.grantSignupBonus(tx, {
+          customerId: existing.id,
+          storeId,
+          signupBonusCents: store.signupBonusCents,
+          validityDays: store.validityDays,
+          actor: { userId: staff.id, role: staff.role },
+          ip,
+        });
+        await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: existing.id, metadata: { storeId, bonusCents: granted }, ip }, tx);
+        return granted;
+      });
       return {
         id: existing.id,
         name: existing.name,
         phone: existing.phone,
         email: existing.email,
         alreadyRegistered: true,
+        bonusCents,
         message: 'Este cliente já estava cadastrado anteriormente em outra loja do grupo e foi vinculado a esta loja.',
       };
     }
@@ -95,13 +122,24 @@ export class CustomersService {
     ]);
     if (emailCustomer || emailUser) throw new ConflictException('Já existe um cliente com este e-mail cadastrado com outro telefone.');
 
-    const customer = await this.prisma.customer.create({
-      data: { name: dto.name, phone, rg: dto.rg, email: dto.email, enrollments: { create: { storeId } } },
+    const { customer, bonusCents } = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.customer.create({
+        data: { name: dto.name, phone, rg: dto.rg, email: dto.email, enrollments: { create: { storeId } } },
+      });
+      const granted = await this.cashback.grantSignupBonus(tx, {
+        customerId: created.id,
+        storeId,
+        signupBonusCents: store.signupBonusCents,
+        validityDays: store.validityDays,
+        actor: { userId: staff.id, role: staff.role },
+        ip,
+      });
+      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CREATED_AT_COUNTER', entity: 'Customer', entityId: created.id, metadata: { storeId, bonusCents: granted }, ip }, tx);
+      return { customer: created, bonusCents: granted };
     });
-    await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CREATED_AT_COUNTER', entity: 'Customer', entityId: customer.id, ip });
-    this.telegram.notify('Cliente cadastrado no caixa', `Cliente: ${customer.name} • Tel: ${customer.phone}`, { userName: staff.name, userRole: staff.role, ip });
+    this.telegram.notify('Cliente cadastrado no caixa', `Cliente: ${customer.name} • Tel: ${customer.phone}${bonusCents ? ` • Bônus: ${formatBRL(bonusCents)}` : ''}`, { userName: staff.name, userRole: staff.role, ip });
     await this.sendWelcome(customer, storeId);
-    return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, alreadyRegistered: false };
+    return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, alreadyRegistered: false, bonusCents };
   }
 
   private async sendWelcome(customer: { id: string; name: string; phone: string; email: string }, storeId: string) {
@@ -134,15 +172,31 @@ export class CustomersService {
   }
 
   async enroll(customerId: string, staff: AuthUser, ip?: string) {
+    const storeId = staff.storeId!;
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
     if (!customer) throw new NotFoundException('Cliente não encontrado');
-    await this.prisma.customerStore.upsert({
-      where: { customerId_storeId: { customerId, storeId: staff.storeId! } },
-      update: {},
-      create: { customerId, storeId: staff.storeId! },
+    const store = await this.prisma.store.findUniqueOrThrow({
+      where: { id: storeId },
+      select: { signupBonusCents: true, validityDays: true },
     });
-    await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: customerId, ip });
-    return { enrolled: true };
+    const bonusCents = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.customerStore.createMany({
+        data: [{ customerId, storeId }],
+        skipDuplicates: true,
+      });
+      if (!created.count) return 0;
+      const granted = await this.cashback.grantSignupBonus(tx, {
+        customerId,
+        storeId,
+        signupBonusCents: store.signupBonusCents,
+        validityDays: store.validityDays,
+        actor: { userId: staff.id, role: staff.role },
+        ip,
+      });
+      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: customerId, metadata: { storeId, bonusCents: granted }, ip }, tx);
+      return granted;
+    });
+    return { enrolled: true, bonusCents };
   }
 
   async listForStore(storeId: string | null, search: string | undefined, page: number, pageSize: number) {
@@ -165,9 +219,101 @@ export class CustomersService {
         orderBy: { name: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: { id: true, name: true, phone: true, email: true, createdAt: true, userId: true },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          createdAt: true,
+          userId: true,
+          enrollments: {
+            where: storeId ? { storeId } : {},
+            select: { isProfessional: true, profession: true, commissionPercentBps: true },
+            take: 1,
+          },
+        },
       }),
     ]);
-    return { total, page, pageSize, items: items.map(({ userId, ...c }) => ({ ...c, hasAccount: userId !== null })) };
+    return {
+      total,
+      page,
+      pageSize,
+      items: items.map(({ userId, enrollments, ...c }) => ({
+        ...c,
+        hasAccount: userId !== null,
+        isProfessional: enrollments[0]?.isProfessional ?? false,
+        profession: enrollments[0]?.profession ?? null,
+        commissionPercentBps: enrollments[0]?.commissionPercentBps ?? 0,
+      })),
+    };
+  }
+
+  async professionals(storeId: string, search: string | undefined) {
+    const rows = await this.prisma.customerStore.findMany({
+      where: {
+        storeId,
+        isProfessional: true,
+        ...(search
+          ? {
+              customer: {
+                OR: [
+                  { name: { contains: search, mode: 'insensitive' as const } },
+                  { phone: { contains: search.replace(/\D/g, '') || search } },
+                ],
+              },
+            }
+          : {}),
+      },
+      orderBy: { customer: { name: 'asc' } },
+      take: 100,
+      select: {
+        profession: true,
+        commissionPercentBps: true,
+        customer: { select: { id: true, name: true, phone: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.customer.id,
+      name: r.customer.name,
+      phone: r.customer.phone,
+      profession: r.profession,
+      commissionPercentBps: r.commissionPercentBps,
+    }));
+  }
+
+  async setProfessional(customerId: string, dto: UpdateProfessionalDto, staff: AuthUser, ip?: string) {
+    const storeId = staff.storeId!;
+    const enrollment = await this.prisma.customerStore.findUnique({
+      where: { customerId_storeId: { customerId, storeId } },
+      select: { customerId: true, isProfessional: true, profession: true, commissionPercentBps: true },
+    });
+    if (!enrollment) throw new NotFoundException('Cliente não está vinculado a esta loja');
+    if (dto.isProfessional && !dto.profession?.trim()) {
+      throw new BadRequestException('Informe a profissão do profissional');
+    }
+    const commissionPercentBps = dto.isProfessional ? Math.round((dto.commissionPercent ?? 0) * 100) : 0;
+    if (dto.isProfessional && commissionPercentBps <= 0) {
+      throw new BadRequestException('Informe uma comissão maior que zero para o profissional');
+    }
+    const updated = await this.prisma.customerStore.update({
+      where: { customerId_storeId: { customerId, storeId } },
+      data: {
+        isProfessional: dto.isProfessional,
+        profession: dto.isProfessional ? dto.profession!.trim() : null,
+        commissionPercentBps,
+      },
+      select: { isProfessional: true, profession: true, commissionPercentBps: true },
+    });
+    await this.audit.log(
+      {
+        userId: staff.id,
+        action: dto.isProfessional ? 'CUSTOMER_PROFESSIONAL_ENABLED' : 'CUSTOMER_PROFESSIONAL_DISABLED',
+        entity: 'Customer',
+        entityId: customerId,
+        metadata: { storeId, before: enrollment, after: updated },
+        ip,
+      },
+    );
+    return updated;
   }
 }

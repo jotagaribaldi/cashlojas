@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Dices, Eye, EyeOff, LockKeyhole, TicketPercent } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Dices, Eye, EyeOff, Gift, LockKeyhole, TicketPercent } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
+import { money } from '../lib/format';
 import { Button, Field, Input, Select } from '../components/ui';
 
-interface StoreOption { id: string; name: string; segment: string; group: { name: string } }
+interface StoreOption { id: string; name: string; segment: string; signupBonusCents: number; group: { name: string } }
 
 function generatePassword(): string {
   const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*?'];
@@ -63,6 +64,7 @@ export function RegisterPage() {
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [values, setValues] = useState({ name: '', email: '', phone: '', rg: '', password: '', storeId: qrStoreId ?? '' });
   const lockedStore = qrStoreId ? stores.find((s) => s.id === qrStoreId) : undefined;
+  const selectedStore = qrStoreId ? lockedStore : stores.find((s) => s.id === values.storeId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -85,6 +87,7 @@ export function RegisterPage() {
     <div className="auth-two-col"><Field label="Celular"><Input type="tel" autoComplete="tel" placeholder="(11) 99999-0000" value={values.phone} onChange={field('phone')} required /></Field><Field label="RG"><Input placeholder="Somente números" value={values.rg} onChange={field('rg')} required /></Field></div>
     <Field label="E-mail"><Input type="email" autoComplete="email" placeholder="voce@exemplo.com.br" value={values.email} onChange={field('email')} required /></Field>
     {qrStoreId ? <p className="register-terms">Você está se cadastrando em <strong>{lockedStore ? lockedStore.name : '...'}</strong>. Depois você poderá participar de outras lojas.</p> : <Field label="Loja favorita" hint="Você também pode participar de outras lojas depois."><Select value={values.storeId} onChange={field('storeId')}><option value="">Escolha uma loja (opcional)</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.segment}</option>)}</Select></Field>}
+    {selectedStore && selectedStore.signupBonusCents > 0 && <div className="signup-bonus-note"><Gift size={17} /><span>Você recebe <strong>{money(selectedStore.signupBonusCents)}</strong> de bônus ao se cadastrar em <strong>{selectedStore.name}</strong>.</span></div>}
     <Field label="Senha" hint="Gere uma senha automática ou digite a sua (10+ caracteres, maiúscula, minúscula, número e símbolo). Seu acesso fica salvo neste aparelho."><div className="password-row"><Input type={showPwd ? 'text' : 'password'} autoComplete="new-password" placeholder="Digite ou gere uma senha" value={values.password} onChange={field('password')} minLength={10} required /><button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowPwd((v) => !v)}>{showPwd ? <EyeOff size={14} /> : <Eye size={14} />}</button><button type="button" className="btn btn-secondary btn-sm" onClick={newPassword}><Dices size={14} /> Gerar senha aleatória</button></div>{values.password && showPwd && <button type="button" className="text-link" onClick={() => void copyPassword()}>{copied ? 'Senha copiada' : 'Copiar senha'}</button>}</Field>
     <p className="register-terms">Ao criar sua conta, você concorda com nossos <a href="#termos">Termos de Uso</a> e <a href="#privacidade">Política de Privacidade</a>.</p>
     <Button type="submit" className="auth-submit" loading={loading}>Criar minha conta <ArrowRight size={17} /></Button>

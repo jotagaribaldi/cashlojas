@@ -69,6 +69,12 @@ export class CreateStoreDto {
   @Max(100)
   cashbackPercent: number;
 
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0, { message: 'O bônus de cadastro não pode ser negativo' })
+  @Max(1000)
+  signupBonus?: number;
+
   @Type(() => Number)
   @IsInt()
   @IsIn([30, 90, 120], { message: 'A validade deve ser de 30, 90 ou 120 dias' })
@@ -109,6 +115,12 @@ export class UpdateStoreDto {
   @Min(0.01)
   @Max(100)
   cashbackPercent?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0, { message: 'O bônus de cadastro não pode ser negativo' })
+  @Max(1000)
+  signupBonus?: number;
 
   @IsOptional()
   @IsInt()

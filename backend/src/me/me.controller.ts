@@ -66,6 +66,11 @@ export class MeController {
     return this.me.purchases(user.id, q.page, q.pageSize);
   }
 
+  @Get('commissions')
+  commissions(@CurrentUser() user: AuthUser, @Query() q: PaginationQuery) {
+    return this.me.commissions(user.id, q.page, q.pageSize);
+  }
+
   @Get('ranking/:storeId')
   ranking(@CurrentUser() user: AuthUser, @Param('storeId', new ParseUUIDPipe()) storeId: string) {
     return this.me.ranking(user.id, storeId);

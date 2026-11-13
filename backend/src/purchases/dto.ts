@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsDateString, IsNumber, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
 import { OnlyDigits } from '../common/utils/sanitize';
 
 export const FiscalDocument = () =>
@@ -26,4 +26,8 @@ export class CreatePurchaseDto {
   @IsDateString({ strict: true }, { message: 'Data inválida' })
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data deve estar no formato AAAA-MM-DD' })
   purchaseDate?: string;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'Profissional indicador inválido' })
+  referrerCustomerId?: string;
 }

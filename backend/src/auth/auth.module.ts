@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { Env } from '../config/env';
+import { CashbackModule } from '../cashback/cashback.module';
 import { AuthController } from './auth.controller';
 import { ActivationService } from './activation.service';
 import { AuthService } from './auth.service';
@@ -10,6 +11,7 @@ import { TokenService } from './token.service';
 @Global()
 @Module({
   imports: [
+    CashbackModule,
     JwtModule.registerAsync({
       global: true,
       inject: [ConfigService],

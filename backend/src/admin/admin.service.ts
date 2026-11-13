@@ -1,10 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, RedemptionStatus, Role } from '@prisma/client';
+import { CreditSource, Prisma, RedemptionStatus, Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { TelegramService } from '../notifications/telegram.service';
 import { AuthUser } from '../common/types';
 import { endOfDayInOffset } from '../common/utils/dates';
+import { toCents } from '../common/utils/money';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsQuery, CreateGroupDto, CreateStoreDto, UpdateGroupDto, UpdateStoreDto } from './dto';
@@ -83,6 +84,7 @@ export class AdminService {
         segment: dto.segment,
         cnpj: dto.cnpj || null,
         cashbackPercentBps: pctToBps(dto.cashbackPercent)!,
+        signupBonusCents: toCents(dto.signupBonus ?? 0),
         validityDays: dto.validityDays,
         maxRedeemPercentBps: pctToBps(dto.maxRedeemPercent) ?? 10_000,
       },
@@ -107,6 +109,7 @@ export class AdminService {
         segment: dto.segment,
         cnpj: dto.cnpj,
         cashbackPercentBps: pctToBps(dto.cashbackPercent),
+        signupBonusCents: dto.signupBonus === undefined ? undefined : toCents(dto.signupBonus),
         validityDays: dto.validityDays,
         maxRedeemPercentBps: pctToBps(dto.maxRedeemPercent),
         active: dto.active,
@@ -144,7 +147,7 @@ export class AdminService {
   }
 
   async dashboard() {
-    const [groups, stores, staff, customers, purchases, redeemed, pending] = await Promise.all([
+    const [groups, stores, staff, customers, purchases, redeemed, pending, signupBonus] = await Promise.all([
       this.prisma.group.count(),
       this.prisma.store.count({ where: { active: true } }),
       this.prisma.user.count({ where: { role: { not: Role.CUSTOMER }, active: true } }),
@@ -152,6 +155,7 @@ export class AdminService {
       this.prisma.purchase.aggregate({ _sum: { amountCents: true, cashbackCents: true }, _count: true }),
       this.prisma.redemption.aggregate({ where: { status: RedemptionStatus.APPROVED }, _sum: { discountCents: true } }),
       this.prisma.redemption.count({ where: { status: RedemptionStatus.PENDING } }),
+      this.prisma.cashbackCredit.aggregate({ where: { source: CreditSource.SIGNUP_BONUS }, _sum: { amountCents: true }, _count: true }),
     ]);
     return {
       groups,
@@ -161,6 +165,8 @@ export class AdminService {
       purchasesCount: purchases._count,
       salesCents: purchases._sum.amountCents ?? 0,
       cashbackIssuedCents: purchases._sum.cashbackCents ?? 0,
+      signupBonusIssuedCents: signupBonus._sum.amountCents ?? 0,
+      signupBonusCount: signupBonus._count,
       cashbackRedeemedCents: redeemed._sum.discountCents ?? 0,
       pendingRedemptions: pending,
     };

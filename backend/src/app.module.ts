@@ -8,7 +8,9 @@ import { AdminService } from './admin/admin.service';
 import { UsersService } from './admin/users.service';
 import { AuditModule } from './audit/audit.service';
 import { AuthModule } from './auth/auth.module';
-import { CashbackService } from './cashback/cashback.service';
+import { CashbackModule } from './cashback/cashback.module';
+import { CommissionsController } from './commissions/commissions.controller';
+import { CommissionsService } from './commissions/commissions.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -36,6 +38,7 @@ import { TeamController } from './team/team.controller';
     ScheduleModule.forRoot(),
     PrismaModule,
     AuditModule,
+    CashbackModule,
     AuthModule,
     NotificationsModule,
     TelegramModule,
@@ -45,6 +48,7 @@ import { TeamController } from './team/team.controller';
     TeamController,
     CustomersController,
     PurchasesController,
+    CommissionsController,
     RedemptionsController,
     MeController,
     ReportsController,
@@ -52,9 +56,9 @@ import { TeamController } from './team/team.controller';
   providers: [
     AdminService,
     UsersService,
-    CashbackService,
     CustomersService,
     PurchasesService,
+    CommissionsService,
     RedemptionsService,
     MeService,
     ReportsService,

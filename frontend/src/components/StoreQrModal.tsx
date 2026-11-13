@@ -1,8 +1,9 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { Printer } from 'lucide-react';
 import { Button, Modal } from './ui';
+import { money } from '../lib/format';
 
-export interface QrStore { id: string; name: string; segment: string }
+export interface QrStore { id: string; name: string; segment: string; signupBonusCents?: number }
 
 export function storeSignupUrl(storeId: string) {
   return `${window.location.origin}/cadastro/${storeId}`;
@@ -15,6 +16,7 @@ export function StoreQrModal({ title, stores, onClose }: { title: string; stores
         <QRCodeSVG value={storeSignupUrl(s.id)} size={200} level="M" marginSize={2} />
         <strong>{s.name}</strong>
         <small>{s.segment}</small>
+        {!!s.signupBonusCents && <small className="qr-bonus">Bônus de {money(s.signupBonusCents)} no cadastro</small>}
         <a href={storeSignupUrl(s.id)} target="_blank" rel="noreferrer" className="table-secondary">{storeSignupUrl(s.id)}</a>
       </div>) : <p>Nenhuma loja encontrada.</p>}
     </div>

@@ -4,8 +4,8 @@ import { AppShell } from './components/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminStoresPage, AdminUsersPage } from './pages/AdminPages';
 import { CashierPage } from './pages/CashierPage';
-import { CustomersPage, CustomerCreditsPage, CustomerStoresPage, CustomerPurchasesPage, RankingPage } from './pages/CustomerPages';
-import { PurchasesPage, ReceiptPage, RedemptionsPage } from './pages/ActivityPages';
+import { CustomersPage, CustomerCreditsPage, CustomerStoresPage, CustomerPurchasesPage, MyCommissionsPage, RankingPage } from './pages/CustomerPages';
+import { CommissionsPage, PurchasesPage, ReceiptPage, RedemptionsPage } from './pages/ActivityPages';
 import { CustomerDashboard, StaffDashboard } from './pages/DashboardPage';
 import { ActivatePage, LoginPage, RegisterPage } from './pages/AuthPages';
 import { ProfilePage } from './pages/ProfilePage';
@@ -42,6 +42,7 @@ export default function App() {
     <Route element={<ProtectedRoute roles={management} />}>
       <Route element={<AppShell />}>
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="commissions" element={<CommissionsPage />} />
         <Route path="admin/users" element={<AdminUsersPage />} />
       </Route>
     </Route>
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="credits" element={<CustomerCreditsPage />} />
         <Route path="stores" element={<CustomerStoresPage />} />
         <Route path="my-purchases" element={<CustomerPurchasesPage />} />
+        <Route path="my-commissions" element={<MyCommissionsPage />} />
         <Route path="ranking" element={<RankingPage />} />
       </Route>
     </Route>

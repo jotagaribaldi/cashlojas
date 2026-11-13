@@ -4,13 +4,14 @@ Plataforma CRM de cashback multiloja/multigrupo para lojas de ferramentas, pisos
 
 ## Funcionalidades implementadas
 
-- **Multitenancy:** grupos e lojas independentes, configurações de cashback, validade e teto de resgate por loja.
+- **Multitenancy:** grupos e lojas independentes, configurações de cashback, bônus de cadastro, validade e teto de resgate por loja.
 - **Papéis e permissões no backend:** ROOT, MANAGER, CASHIER e CUSTOMER; as permissões não dependem da interface.
 - **Autenticação:** Argon2id, access JWT curto, refresh token rotativo armazenado somente como hash, revogação de sessões, cookie HttpOnly e token CSRF para operações de sessão.
 - **Proteções:** DTOs com validação/allowlist, Helmet, CORS configurável, rate limiting, bloqueio após falhas de senha, resposta de erro sem detalhes internos, auditoria e tratamento de duplicidades.
 - **Caixa:** busca de clientes cadastrados/vinculados, registro de compra em centavos, cálculo do cashback e notificação da compra.
 - **Resgate:** solicitação no caixa, teto por compra e saldo disponível, aprovação/rejeição por gerente, alocação por vencimento (vence primeiro, consome primeiro) e comprovante auditável com código.
 - **Cliente:** cadastro web, saldo por loja, extrato de créditos, vencimentos, descontos utilizados e adesão a outras lojas.
+- **Bônus de cadastro:** cada loja define um valor fixo (inclusive R$ 0,00) creditado uma única vez quando o cliente se vincula à loja, seja pelo caixa ou pelo QR Code de autocadastro.
 - **WhatsApp:** adaptador local de simulação/log, integração com WhatsApp Cloud API da Meta por templates aprovados e suporte a WAHA (instância própria) para o MVP. Falhas são registradas sem desfazer a compra.
 - **Root:** dashboard da rede, grupos, lojas, usuários, desativação segura e trilha de auditoria.
 - **Interface:** React/TypeScript responsivo para desktop/tablet/celular, estados de carregamento/erro/vazio, formulários e relatórios exportáveis em CSV.
@@ -63,6 +64,18 @@ ProxyPassReverse /api/ http://127.0.0.1:3000/api/
 ```
 
 Confirme com `curl -o /dev/null -w "%{http_code}\n" https://seu-dominio/cadastro/<id-da-loja>`: deve retornar `200` com `content-type: text/html`.
+
+### URL pública nos links de e-mail/WhatsApp
+
+Os links de ativação e de boas-vindas enviados por e-mail e WhatsApp são montados a partir de `APP_PUBLIC_URL` (backend/src/auth/activation.service.ts e backend/src/auth/auth.service.ts). Em produção, defina no `.env` lido pelo serviço `api`:
+
+```dotenv
+APP_PUBLIC_URL=https://cashlojas.topago.com.br
+CORS_ORIGINS=https://cashlojas.topago.com.br
+COOKIE_SECURE=true
+```
+
+Depois reinicie a API (`docker compose up -d --force-recreate api` ou `docker compose restart api`). Se `APP_PUBLIC_URL` continuar apontando para `localhost` em `NODE_ENV=production`, a API sobe mas registra um aviso no log e os links enviados aos clientes ficam inacessíveis.
 
 ### Dados de demonstração (opcional)
 
@@ -137,6 +150,7 @@ WHATSAPP_WAHA_SESSION=default
 
 - Valores monetários são guardados como inteiros em centavos; taxa de cashback e teto de resgate usam basis points (`500` = 5%).
 - Cashback é calculado por compra registrada e associado à loja daquela compra; saldo não é misturado entre lojas.
+- O bônus de cadastro é um crédito separado (`source = SIGNUP_BONUS`), sem compra associada, com a mesma validade configurada na loja. Ele é concedido no primeiro vínculo do cliente com a loja e nunca duplicado: a chave única `signupBonusKey` (cliente + loja) garante um bônus por par.
 - A validade é calculada a partir da data da compra e configuração da loja. Compras podem ser registradas até 7 dias retroativos, nunca no futuro.
 - Nota/cupom fiscal é único por loja. Também se bloqueia a mesma combinação cliente + loja + dia + valor para reduzir duplicidade acidental.
 - O desconto pendente não debita o saldo. O saldo é revalidado, travado por cliente e debitado atomicamente no momento em que o gerente aprova.

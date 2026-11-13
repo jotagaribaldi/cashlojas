@@ -2,6 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CreditStatus, Prisma, RedemptionRequestStatus, RedemptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CashbackService } from '../cashback/cashback.service';
+import { CommissionsService } from '../commissions/commissions.service';
 import { TelegramService } from '../notifications/telegram.service';
 import { formatBRL } from '../common/utils/money';
 import { UpdateProfileDto } from './dto';
@@ -11,6 +13,8 @@ export class MeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly cashback: CashbackService,
+    private readonly commissionsService: CommissionsService,
     private readonly telegram: TelegramService,
   ) {}
 
@@ -161,7 +165,7 @@ export class MeService {
       this.prisma.store.findMany({
         where: { active: true, group: { active: true } },
         orderBy: [{ group: { name: 'asc' } }, { name: 'asc' }],
-        select: { id: true, name: true, segment: true, validityDays: true, cashbackPercentBps: true, group: { select: { name: true } } },
+        select: { id: true, name: true, segment: true, validityDays: true, cashbackPercentBps: true, signupBonusCents: true, group: { select: { name: true } } },
       }),
       this.prisma.customerStore.findMany({ where: { customerId: customer.id }, select: { storeId: true } }),
     ]);
@@ -171,16 +175,29 @@ export class MeService {
 
   async enroll(userId: string, storeId: string) {
     const customer = await this.customerFor(userId);
-    const store = await this.prisma.store.findFirst({ where: { id: storeId, active: true }, select: { id: true } });
-    if (!store) throw new NotFoundException('Loja não encontrada');
-    await this.prisma.customerStore.upsert({
-      where: { customerId_storeId: { customerId: customer.id, storeId } },
-      update: {},
-      create: { customerId: customer.id, storeId },
+    const store = await this.prisma.store.findFirst({
+      where: { id: storeId, active: true },
+      select: { id: true, signupBonusCents: true, validityDays: true },
     });
-    await this.audit.log({ userId, action: 'CUSTOMER_SELF_ENROLLED', entity: 'Customer', entityId: customer.id, storeId, metadata: { storeId } });
-    this.telegram.notify('Cliente vinculado a loja', `Cliente: ${customer.name} se vinculou a uma loja via QR/app`, { userRole: 'CUSTOMER' });
-    return { enrolled: true };
+    if (!store) throw new NotFoundException('Loja não encontrada');
+    const bonusCents = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.customerStore.createMany({
+        data: [{ customerId: customer.id, storeId }],
+        skipDuplicates: true,
+      });
+      if (!created.count) return 0;
+      const granted = await this.cashback.grantSignupBonus(tx, {
+        customerId: customer.id,
+        storeId,
+        signupBonusCents: store.signupBonusCents,
+        validityDays: store.validityDays,
+        actor: { userId, role: 'CUSTOMER' },
+      });
+      await this.audit.log({ userId, action: 'CUSTOMER_SELF_ENROLLED', entity: 'Customer', entityId: customer.id, storeId, metadata: { storeId, bonusCents: granted } }, tx);
+      return granted;
+    });
+    this.telegram.notify('Cliente vinculado a loja', `Cliente: ${customer.name} se vinculou a uma loja via QR/app${bonusCents ? ` • Bônus: ${formatBRL(bonusCents)}` : ''}`, { userRole: 'CUSTOMER' });
+    return { enrolled: true, bonusCents };
   }
 
   async redemptionRequests(userId: string) {
@@ -224,6 +241,11 @@ export class MeService {
     if (!result.count) throw new NotFoundException('Solicitação não encontrada');
     await this.audit.log({ userId, action: 'REDEMPTION_REQUEST_CANCELLED', entity: 'RedemptionRequest', entityId: id, metadata: { customerId: customer.id } });
     return { cancelled: true };
+  }
+
+  async commissions(userId: string, page: number, pageSize: number) {
+    const customer = await this.customerFor(userId);
+    return this.commissionsService.mine(customer.id, page, pageSize);
   }
 
   async purchases(userId: string, page: number, pageSize: number) {

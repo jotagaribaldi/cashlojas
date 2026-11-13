@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowUpRight, Bell, ChevronDown, CircleHelp, CreditCard, LayoutDashboard,
+  ArrowUpRight, Bell, ChevronDown, CircleHelp, CreditCard, Handshake, LayoutDashboard,
   LogOut, Menu, Settings2, ShieldCheck, Store, TicketPercent, Users, Wallet, X,
 } from 'lucide-react';
 import { useAuth, type Role } from '../auth/AuthContext';
@@ -15,6 +15,7 @@ const links: NavItem[] = [
   { label: 'Resgates', to: '/redemptions', icon: TicketPercent, roles: ['ROOT', 'CASHIER', 'MANAGER', 'CUSTOMER'] },
   { label: 'Meus créditos', to: '/credits', icon: Wallet, roles: ['CUSTOMER'] },
   { label: 'Minhas compras', to: '/my-purchases', icon: CreditCard, roles: ['CUSTOMER'] },
+  { label: 'Minhas comissões', to: '/my-commissions', icon: Handshake, roles: ['CUSTOMER'] },
   { label: 'Ranking', to: '/ranking', icon: TicketPercent, roles: ['CUSTOMER'] },
   { label: 'Lojas participantes', to: '/stores', icon: Store, roles: ['CUSTOMER'] },
   { label: 'Clientes', to: '/customers', icon: Users, roles: ['ROOT', 'CASHIER', 'MANAGER'] },
@@ -22,12 +23,14 @@ const links: NavItem[] = [
   { label: 'Auditoria', to: '/admin/audit', icon: ShieldCheck, roles: ['ROOT'] },
   { label: 'Equipe', to: '/admin/users', icon: ShieldCheck, roles: ['ROOT', 'MANAGER'] },
   { label: 'Relatórios', to: '/reports', icon: LayoutDashboard, roles: ['ROOT', 'MANAGER'] },
+  { label: 'Comissões', to: '/commissions', icon: Handshake, roles: ['MANAGER'] },
 ];
 
 const titles: Record<string, string> = {
   '/': 'Visão geral', '/cashier': 'Frente de caixa', '/purchases': 'Compras registradas',
   '/redemptions': 'Resgates de cashback', '/customers': 'Clientes', '/admin/stores': 'Lojas e grupos', '/admin/audit': 'Auditoria',
   '/admin/users': 'Equipe e acessos', '/reports': 'Relatórios', '/profile': 'Meu perfil',
+  '/commissions': 'Comissões', '/my-commissions': 'Minhas comissões',
 };
 
 export function AppShell() {

@@ -1,6 +1,6 @@
 import { Controller, Get, Injectable, Query } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CreditStatus, RedemptionStatus, Role } from '@prisma/client';
+import { CreditSource, CreditStatus, RedemptionStatus, Role } from '@prisma/client';
 import { IsDateString, IsOptional } from 'class-validator';
 import { CurrentUser, Public, Roles } from '../common/decorators';
 import { AuthUser } from '../common/types';
@@ -33,7 +33,7 @@ export class ReportsService {
     const tsRange = { gte: new Date(`${from}T00:00:00Z`), lt: new Date(`${addDaysToDateString(to, 1)}T00:00:00Z`) };
     const now = new Date();
 
-    const [purchases, redemptions, pending, active, expired, customers] = await Promise.all([
+    const [purchases, redemptions, pending, active, expired, customers, signupBonus] = await Promise.all([
       this.prisma.purchase.aggregate({
         where: { ...(storeId ? { storeId } : {}), purchaseDate: dateRange },
         _sum: { amountCents: true, cashbackCents: true },
@@ -54,6 +54,11 @@ export class ReportsService {
         _sum: { remainingCents: true },
       }),
       this.prisma.customerStore.count({ where: storeId ? { storeId } : {} }),
+      this.prisma.cashbackCredit.aggregate({
+        where: { ...(storeId ? { storeId } : {}), source: CreditSource.SIGNUP_BONUS, earnedAt: tsRange },
+        _sum: { amountCents: true },
+        _count: true,
+      }),
     ]);
 
     return {
@@ -62,6 +67,8 @@ export class ReportsService {
       purchasesCount: purchases._count,
       salesCents: purchases._sum.amountCents ?? 0,
       cashbackIssuedCents: purchases._sum.cashbackCents ?? 0,
+      signupBonusIssuedCents: signupBonus._sum.amountCents ?? 0,
+      signupBonusCount: signupBonus._count,
       redemptionsCount: redemptions._count,
       cashbackRedeemedCents: redemptions._sum.discountCents ?? 0,
       cashbackExpiredCents: expired._sum.remainingCents ?? 0,
@@ -81,6 +88,7 @@ export class ReportsService {
         segment: true,
         validityDays: true,
         cashbackPercentBps: true,
+        signupBonusCents: true,
         group: { select: { name: true } },
       },
     });

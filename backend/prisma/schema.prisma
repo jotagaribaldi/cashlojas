@@ -21,6 +21,16 @@ enum CreditStatus {
   EXPIRED
 }
 
+enum CreditSource {
+  PURCHASE
+  SIGNUP_BONUS
+}
+
+enum CommissionStatus {
+  PENDING
+  PAID
+}
+
 enum RedemptionRequestStatus {
   OPEN
   ATTENDED
@@ -53,68 +63,71 @@ model Group {
 }
 
 model Store {
-  id                   String           @id @default(uuid()) @db.Uuid
-  groupId              String           @db.Uuid
-  name                 String           @db.VarChar(120)
-  segment              String           @db.VarChar(120)
-  cnpj                 String?          @unique @db.VarChar(14)
-  cashbackPercentBps   Int              @default(500)
-  validityDays         Int              @default(90)
-  maxRedeemPercentBps  Int              @default(10000)
-  active               Boolean          @default(true)
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  group                Group            @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  users                User[]
-  enrollments          CustomerStore[]
-  purchases            Purchase[]
-  credits              CashbackCredit[]
-  redemptions          Redemption[]
-  redemptionRequests   RedemptionRequest[]
+  id                  String              @id @default(uuid()) @db.Uuid
+  groupId             String              @db.Uuid
+  name                String              @db.VarChar(120)
+  segment             String              @db.VarChar(120)
+  cnpj                String?             @unique @db.VarChar(14)
+  cashbackPercentBps  Int                 @default(500)
+  signupBonusCents    Int                 @default(0)
+  validityDays        Int                 @default(90)
+  maxRedeemPercentBps Int                 @default(10000)
+  active              Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  group               Group               @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  users               User[]
+  enrollments         CustomerStore[]
+  purchases           Purchase[]
+  credits             CashbackCredit[]
+  redemptions         Redemption[]
+  redemptionRequests  RedemptionRequest[]
+  commissions         ReferralCommission[]
 
   @@index([groupId])
   @@map("stores")
 }
 
 model User {
-  id                  String         @id @default(uuid()) @db.Uuid
-  name                String         @db.VarChar(120)
-  email               String         @unique @db.VarChar(160)
-  passwordHash        String
-  role                Role
-  storeId             String?        @db.Uuid
-  active              Boolean        @default(true)
-  failedLoginAttempts Int            @default(0)
-  lockedUntil         DateTime?
-  lastLoginAt         DateTime?
-  passwordChangedAt   DateTime       @default(now())
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  store               Store?         @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  customer            Customer?
-  refreshTokens       RefreshToken[]
-  purchasesRegistered Purchase[]     @relation("PurchaseCashier")
-  redemptionsRequested Redemption[]  @relation("RedemptionCashier")
-  redemptionsApproved  Redemption[]  @relation("RedemptionManager")
-  auditLogs           AuditLog[]
+  id                   String         @id @default(uuid()) @db.Uuid
+  name                 String         @db.VarChar(120)
+  email                String         @unique @db.VarChar(160)
+  passwordHash         String
+  role                 Role
+  storeId              String?        @db.Uuid
+  active               Boolean        @default(true)
+  failedLoginAttempts  Int            @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime       @default(now())
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  store                Store?         @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  customer             Customer?
+  refreshTokens        RefreshToken[]
+  purchasesRegistered  Purchase[]     @relation("PurchaseCashier")
+  redemptionsRequested Redemption[]   @relation("RedemptionCashier")
+  redemptionsApproved  Redemption[]   @relation("RedemptionManager")
+  commissionsPaid      ReferralCommission[] @relation("CommissionPaidBy")
+  auditLogs            AuditLog[]
 
   @@index([storeId])
   @@map("users")
 }
 
 model RefreshToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @db.Uuid
-  familyId   String    @db.Uuid
-  tokenHash  String    @unique
-  passwordChangedAt DateTime @default(now())
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  replacedBy String?   @db.Uuid
-  userAgent  String?   @db.VarChar(255)
-  ip         String?   @db.VarChar(64)
-  createdAt  DateTime  @default(now())
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  familyId          String    @db.Uuid
+  tokenHash         String    @unique
+  passwordChangedAt DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedBy        String?   @db.Uuid
+  userAgent         String?   @db.VarChar(255)
+  ip                String?   @db.VarChar(64)
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([familyId])
@@ -122,22 +135,24 @@ model RefreshToken {
 }
 
 model Customer {
-  id          String           @id @default(uuid()) @db.Uuid
-  userId      String?          @unique @db.Uuid
-  name        String           @db.VarChar(120)
-  phone       String           @unique @db.VarChar(15)
-  rg          String           @db.VarChar(20)
-  email       String           @unique @db.VarChar(160)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  user        User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  enrollments CustomerStore[]
-  purchases   Purchase[]
-  credits     CashbackCredit[]
-  redemptions Redemption[]
-  notifications Notification[]
-  activationTokens ActivationToken[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  userId             String?             @unique @db.Uuid
+  name               String              @db.VarChar(120)
+  phone              String              @unique @db.VarChar(15)
+  rg                 String              @db.VarChar(20)
+  email              String              @unique @db.VarChar(160)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  enrollments        CustomerStore[]
+  purchases          Purchase[]
+  credits            CashbackCredit[]
+  redemptions        Redemption[]
+  notifications      Notification[]
+  activationTokens   ActivationToken[]
   redemptionRequests RedemptionRequest[]
+  referrals          Purchase[]          @relation("PurchaseReferrer")
+  commissions        ReferralCommission[]
 
   @@map("customers")
 }
@@ -156,11 +171,14 @@ model ActivationToken {
 }
 
 model CustomerStore {
-  customerId String   @db.Uuid
-  storeId    String   @db.Uuid
-  enrolledAt DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId           String   @db.Uuid
+  storeId              String   @db.Uuid
+  enrolledAt           DateTime @default(now())
+  isProfessional       Boolean  @default(false)
+  profession           String?  @db.VarChar(80)
+  commissionPercentBps Int      @default(0)
+  customer             Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  store                Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@id([customerId, storeId])
   @@index([storeId])
@@ -172,6 +190,7 @@ model Purchase {
   storeId        String          @db.Uuid
   customerId     String          @db.Uuid
   cashierId      String          @db.Uuid
+  referrerCustomerId String?     @db.Uuid
   fiscalDocument String          @db.VarChar(60)
   amountCents    Int
   cashbackCents  Int
@@ -179,25 +198,30 @@ model Purchase {
   createdAt      DateTime        @default(now())
   store          Store           @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  referrer       Customer?       @relation("PurchaseReferrer", fields: [referrerCustomerId], references: [id], onDelete: SetNull)
   cashier        User            @relation("PurchaseCashier", fields: [cashierId], references: [id], onDelete: Restrict)
   credit         CashbackCredit?
+  commission     ReferralCommission?
 
   @@unique([storeId, fiscalDocument])
   @@index([customerId, storeId, purchaseDate, amountCents])
+  @@index([referrerCustomerId])
   @@map("purchases")
 }
 
 model CashbackCredit {
   id             String           @id @default(uuid()) @db.Uuid
-  purchaseId     String           @unique @db.Uuid
+  purchaseId     String?          @unique @db.Uuid
   customerId     String           @db.Uuid
   storeId        String           @db.Uuid
+  source         CreditSource     @default(PURCHASE)
+  signupBonusKey String?          @unique @db.VarChar(80)
   amountCents    Int
   remainingCents Int
   earnedAt       DateTime         @default(now())
   expiresAt      DateTime
   status         CreditStatus     @default(ACTIVE)
-  purchase       Purchase         @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  purchase       Purchase?        @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
   customer       Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   store          Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   allocations    RedemptionItem[]
@@ -207,24 +231,24 @@ model CashbackCredit {
 }
 
 model Redemption {
-  id                String           @id @default(uuid()) @db.Uuid
-  storeId           String           @db.Uuid
-  customerId        String           @db.Uuid
-  cashierId         String           @db.Uuid
-  managerId         String?          @db.Uuid
-  fiscalDocument    String           @db.VarChar(60)
+  id                  String           @id @default(uuid()) @db.Uuid
+  storeId             String           @db.Uuid
+  customerId          String           @db.Uuid
+  cashierId           String           @db.Uuid
+  managerId           String?          @db.Uuid
+  fiscalDocument      String           @db.VarChar(60)
   purchaseAmountCents Int
-  discountCents     Int
-  status            RedemptionStatus @default(PENDING)
-  authorizationCode String?          @unique @db.VarChar(20)
-  decisionNote      String?          @db.VarChar(255)
-  decidedAt         DateTime?
-  createdAt         DateTime         @default(now())
-  store             Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  customer          Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  cashier           User             @relation("RedemptionCashier", fields: [cashierId], references: [id], onDelete: Restrict)
-  manager           User?            @relation("RedemptionManager", fields: [managerId], references: [id], onDelete: Restrict)
-  items             RedemptionItem[]
+  discountCents       Int
+  status              RedemptionStatus @default(PENDING)
+  authorizationCode   String?          @unique @db.VarChar(20)
+  decisionNote        String?          @db.VarChar(255)
+  decidedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  store               Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  customer            Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  cashier             User             @relation("RedemptionCashier", fields: [cashierId], references: [id], onDelete: Restrict)
+  manager             User?            @relation("RedemptionManager", fields: [managerId], references: [id], onDelete: Restrict)
+  items               RedemptionItem[]
 
   @@index([storeId, status])
   @@index([customerId])
@@ -286,6 +310,27 @@ model AuditLog {
   @@index([outcome, createdAt])
   @@index([storeId, createdAt])
   @@map("audit_logs")
+}
+
+model ReferralCommission {
+  id                     String           @id @default(uuid()) @db.Uuid
+  purchaseId             String           @unique @db.Uuid
+  storeId                String           @db.Uuid
+  professionalCustomerId String           @db.Uuid
+  amountCents            Int
+  percentBps             Int
+  status                 CommissionStatus @default(PENDING)
+  paidAt                 DateTime?
+  paidByUserId           String?          @db.Uuid
+  createdAt              DateTime         @default(now())
+  purchase               Purchase         @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  store                  Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  professional           Customer         @relation(fields: [professionalCustomerId], references: [id], onDelete: Restrict)
+  paidBy                 User?            @relation("CommissionPaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+  @@index([professionalCustomerId])
+  @@map("referral_commissions")
 }
 
 model RedemptionRequest {

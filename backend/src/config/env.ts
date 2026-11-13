@@ -72,5 +72,13 @@ export function validateEnv(config: Record<string, unknown>): Env {
   if (parsed.data.WHATSAPP_PROVIDER === 'waha' && !parsed.data.WHATSAPP_WAHA_BASE_URL) {
     throw new Error('WHATSAPP_WAHA_BASE_URL é obrigatório com WHATSAPP_PROVIDER=waha');
   }
+  if (parsed.data.NODE_ENV === 'production') {
+    const host = new URL(parsed.data.APP_PUBLIC_URL).hostname;
+    if (['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(host)) {
+      console.warn(
+        `[config] APP_PUBLIC_URL=${parsed.data.APP_PUBLIC_URL} em produção: os links de ativação e de boas-vindas enviados por e-mail/WhatsApp apontarão para esse endereço. Defina a URL pública do frontend (ex.: https://cashlojas.topago.com.br).`,
+      );
+    }
+  }
   return parsed.data;
 }

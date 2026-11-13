@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Role, User } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { AuditService } from '../audit/audit.service';
+import { CashbackService } from '../cashback/cashback.service';
 import { RequestContext } from '../common/types';
 import { normalizePhone } from '../common/utils/phone';
 import { Env } from '../config/env';
@@ -41,6 +42,7 @@ export class AuthService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly cashback: CashbackService,
     private readonly notifications: NotificationsService,
     private readonly telegram: TelegramService,
     private readonly config: ConfigService<Env, true>,
@@ -48,6 +50,12 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit() {
     this.dummyHash = await hashPassword('dummy-password-for-timing-Aa1!');
+  }
+
+  /** URL pública do frontend, sem barra final duplicada (ex.: https://dominio/caminho). */
+  private publicUrl(path = ''): string {
+    const base = this.config.get('APP_PUBLIC_URL', { infer: true }).replace(/\/+$/, '');
+    return `${base}${path}`;
   }
 
   async verifyCredentials(email: string, password: string, ctx: RequestContext): Promise<User> {
@@ -109,10 +117,13 @@ export class AuthService implements OnModuleInit {
     if (!phone) throw new BadRequestException('Telefone inválido. Informe DDD + número.');
 
     const storeIds = [...new Set(dto.storeIds ?? [])];
-    if (storeIds.length) {
-      const count = await this.prisma.store.count({ where: { id: { in: storeIds }, active: true } });
-      if (count !== storeIds.length) throw new BadRequestException('Uma ou mais lojas selecionadas são inválidas');
-    }
+    const stores = storeIds.length
+      ? await this.prisma.store.findMany({
+          where: { id: { in: storeIds }, active: true },
+          select: { id: true, name: true, signupBonusCents: true, validityDays: true },
+        })
+      : [];
+    if (stores.length !== storeIds.length) throw new BadRequestException('Uma ou mais lojas selecionadas são inválidas');
 
     const emailInUse = await this.prisma.user.findUnique({ where: { email: dto.email }, select: { id: true } });
     if (emailInUse) throw new ConflictException('Não foi possível concluir o cadastro com estes dados');
@@ -127,7 +138,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const passwordHash = await hashPassword(dto.password);
-    const user = await this.prisma.$transaction(async (tx) => {
+    const { user, signupBonusCents } = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: { name: dto.name, email: dto.email, passwordHash, role: Role.CUSTOMER },
       });
@@ -142,40 +153,42 @@ export class AuthService implements OnModuleInit {
           skipDuplicates: true,
         });
       }
+      let bonusCents = 0;
+      for (const store of stores) {
+        bonusCents += await this.cashback.grantSignupBonus(tx, {
+          customerId: customer.id,
+          storeId: store.id,
+          signupBonusCents: store.signupBonusCents,
+          validityDays: store.validityDays,
+          actor: { userId: created.id, role: Role.CUSTOMER },
+          ip: ctx.ip,
+        });
+      }
       await this.audit.log(
-        { userId: created.id, role: Role.CUSTOMER, action: 'CUSTOMER_REGISTERED', entity: 'Customer', entityId: customer.id, metadata: { storeIds, linkedExistingCustomer: !!existing }, ip: ctx.ip, userAgent: ctx.userAgent },
+        { userId: created.id, role: Role.CUSTOMER, action: 'CUSTOMER_REGISTERED', entity: 'Customer', entityId: customer.id, metadata: { storeIds, linkedExistingCustomer: !!existing, signupBonusCents: bonusCents }, ip: ctx.ip, userAgent: ctx.userAgent },
         tx,
       );
-      return created;
+      return { user: created, signupBonusCents: bonusCents };
     });
 
     const issued = await this.tokens.issue(user, ctx);
     this.telegram.notify('Novo cliente cadastrado', `Cliente: ${dto.name} • E-mail: ${dto.email}${storeIds.length ? ` • Lojas: ${storeIds.length}` : ''}`, { userRole: 'CUSTOMER', ip: ctx.ip });
 
-    if (storeIds.length === 1) {
-      const store = await this.prisma.store.findUnique({ where: { id: storeIds[0] }, select: { name: true } });
-      if (store) {
-        this.notifications.notifyWelcome({
-          customerId: user.id,
-          customerName: dto.name,
-          phone,
-          email: dto.email,
-          storeName: store.name,
-          activationUrl: this.config.get('APP_PUBLIC_URL', { infer: true }),
-        });
-      }
-    } else {
+    const store = storeIds.length === 1
+      ? await this.prisma.store.findUnique({ where: { id: storeIds[0] }, select: { name: true } })
+      : null;
+    if (storeIds.length !== 1 || store) {
       this.notifications.notifyWelcome({
         customerId: user.id,
         customerName: dto.name,
         phone,
         email: dto.email,
-        storeName: 'programa de cashback',
-        activationUrl: this.config.get('APP_PUBLIC_URL', { infer: true }),
+        storeName: store?.name ?? 'programa de cashback',
+        activationUrl: this.publicUrl('/login'),
       });
     }
 
-    return { ...issued, user: publicUser(user) };
+    return { ...issued, user: publicUser(user), signupBonusCents };
   }
 
   async refresh(refreshToken: string | undefined, ctx: RequestContext) {

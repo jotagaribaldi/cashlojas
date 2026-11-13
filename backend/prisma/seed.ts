@@ -38,10 +38,10 @@ async function main() {
   });
 
   const stores = [
-    { key: 'ferramentas', name: 'Construir Ferramentas', segment: 'Ferramentas em geral', bps: 500, days: 90 },
-    { key: 'pisos', name: 'Construir Pisos & Porcelanatos', segment: 'Pisos e porcelanatos', bps: 300, days: 120 },
-    { key: 'eletrica', name: 'Construir Elétrica & Light Design', segment: 'Materiais elétricos e light design', bps: 400, days: 90 },
-    { key: 'basico', name: 'Construir Materiais Básicos', segment: 'Materiais de construção básica', bps: 200, days: 30 },
+    { key: 'ferramentas', name: 'Construir Ferramentas', segment: 'Ferramentas em geral', bps: 500, days: 90, bonus: 500 },
+    { key: 'pisos', name: 'Construir Pisos & Porcelanatos', segment: 'Pisos e porcelanatos', bps: 300, days: 120, bonus: 1000 },
+    { key: 'eletrica', name: 'Construir Elétrica & Light Design', segment: 'Materiais elétricos e light design', bps: 400, days: 90, bonus: 0 },
+    { key: 'basico', name: 'Construir Materiais Básicos', segment: 'Materiais de construção básica', bps: 200, days: 30, bonus: 500 },
   ];
 
   for (const s of stores) {
@@ -49,7 +49,7 @@ async function main() {
     const store =
       existing ??
       (await prisma.store.create({
-        data: { groupId: group.id, name: s.name, segment: s.segment, cashbackPercentBps: s.bps, validityDays: s.days, maxRedeemPercentBps: 5000 },
+        data: { groupId: group.id, name: s.name, segment: s.segment, cashbackPercentBps: s.bps, signupBonusCents: s.bonus, validityDays: s.days, maxRedeemPercentBps: 5000 },
       }));
     for (const role of [Role.MANAGER, Role.CASHIER]) {
       const email = `${role === Role.MANAGER ? 'gerente' : 'caixa'}.${s.key}@cashlojas.local`;
