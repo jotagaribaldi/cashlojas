@@ -199,9 +199,14 @@ export class CustomersService {
     return { enrolled: true, bonusCents };
   }
 
-  async listForStore(storeId: string | null, search: string | undefined, page: number, pageSize: number) {
+  async listForStore(storeId: string | null, search: string | undefined, page: number, pageSize: number, onlyProfessionals = false) {
     const where = {
-      enrollments: { some: storeId ? { storeId } : {} },
+      enrollments: {
+        some: {
+          ...(storeId ? { storeId } : {}),
+          ...(onlyProfessionals ? { isProfessional: true } : {}),
+        },
+      },
       ...(search
         ? {
             OR: [

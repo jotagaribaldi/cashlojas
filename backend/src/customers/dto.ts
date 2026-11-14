@@ -1,5 +1,12 @@
-import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import { PaginationQuery } from '../common/pagination';
 import { NormalizeEmail, OnlyDigits, Sanitize } from '../common/utils/sanitize';
+
+export class CustomerListQuery extends PaginationQuery {
+  @IsOptional()
+  @IsIn(['true', 'false'], { message: 'Filtro de profissional inválido' })
+  professional?: 'true' | 'false';
+}
 
 export class LookupCustomerDto {
   @OnlyDigits()

@@ -31,20 +31,23 @@ function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreat
   </form></Modal>;
 }
 
-const PROFESSIONS = ['Pintor', 'Mecânico', 'Eletricista', 'Marceneiro', 'Pedreiro', 'Encanador', 'Gesseiro', 'Serralheiro', 'Vidraceiro', 'Arquiteto', 'Designer de interiores'];
+const PROFESSIONS = ['Pintor', 'Eletricista', 'Marceneiro', 'Pedreiro', 'Encanador', 'Gesseiro', 'Serralheiro', 'Vidraceiro', 'Mecânico', 'Soldador', 'Telhadista', 'Azulejista', 'Arquiteto', 'Designer de interiores', 'Engenheiro civil'];
 
 function ProfessionalModal({ customer, onClose, onSaved }: { customer: Customer; onClose: () => void; onSaved: () => void }) {
   const [error, setError] = useState('');
+  const [isProfessional, setIsProfessional] = useState(customer.isProfessional);
   const mutation = useMutation({
     mutationFn: (values: { isProfessional: boolean; profession?: string; commissionPercent?: number }) => api(`/customers/${customer.id}/professional`, { method: 'PATCH', body: jsonBody(values) }),
     onSuccess: () => { onSaved(); onClose(); },
     onError: (e) => setError(e instanceof Error ? e.message : 'Não foi possível atualizar o profissional.'),
   });
-  return <Modal title={`Profissional indicador · ${customer.name}`} onClose={onClose}><form className="modal-form" onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); const isProfessional = f.get('isProfessional') === 'true'; mutation.mutate({ isProfessional, ...(isProfessional ? { profession: String(f.get('profession') ?? ''), commissionPercent: Number(f.get('commissionPercent')) } : {}) }); }}>
-    <Field label="Indica clientes para a loja?" hint="Ao ativar, este cliente passa a receber comissão pelas vendas que indicar."><Select name="isProfessional" defaultValue={customer.isProfessional ? 'true' : 'false'}><option value="false">Não</option><option value="true">Sim, é profissional indicador</option></Select></Field>
-    <Field label="Profissão"><Input name="profession" list="profession-options" defaultValue={customer.profession ?? ''} placeholder="Ex.: Pintor" minLength={2} maxLength={80} /></Field>
-    <datalist id="profession-options">{PROFESSIONS.map((p) => <option key={p} value={p} />)}</datalist>
-    <Field label="Comissão por indicação (%)" hint="Percentual sobre o valor de cada compra indicada. Ex.: 5 significa 5%."><Input name="commissionPercent" type="number" min="0" max="100" step="0.01" defaultValue={customer.commissionPercentBps / 100} /></Field>
+  return <Modal title={`Profissional indicador · ${customer.name}`} onClose={onClose}><form className="modal-form" onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); mutation.mutate({ isProfessional, ...(isProfessional ? { profession: String(f.get('profession') ?? ''), commissionPercent: Number(f.get('commissionPercent')) } : {}) }); }}>
+    <Field label="Indica clientes para a loja?" hint="Ao ativar, este cliente passa a receber comissão pelas vendas que indicar."><Select value={isProfessional ? 'true' : 'false'} onChange={(e) => setIsProfessional(e.target.value === 'true')}><option value="false">Não</option><option value="true">Sim, é profissional indicador</option></Select></Field>
+    {isProfessional && <>
+      <Field label="Profissão" hint="Ex.: pintor, eletricista, marceneiro."><Input name="profession" list="profession-options" defaultValue={customer.profession ?? ''} placeholder="Ex.: Pintor" minLength={2} maxLength={80} required /></Field>
+      <datalist id="profession-options">{PROFESSIONS.map((p) => <option key={p} value={p} />)}</datalist>
+      <Field label="Comissão por indicação (%)" hint="Percentual sobre o valor de cada compra indicada. Ex.: 5 significa 5%."><Input name="commissionPercent" type="number" min="0.01" max="100" step="0.01" defaultValue={customer.isProfessional ? customer.commissionPercentBps / 100 : 5} required /></Field>
+    </>}
     {error && <ErrorMessage message={error} />}
     <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Salvar profissional</Button></div>
   </form></Modal>;
@@ -57,14 +60,53 @@ export function CustomersPage() {
   const [creating, setCreating] = useState(false);
   const [professional, setProfessional] = useState<Customer | null>(null);
   const [search, setSearch] = useState('');
-  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['customers', search], queryFn: () => api<CustomerPage>(`/customers?pageSize=50${search ? `&search=${encodeURIComponent(search)}` : ''}`) });
+  const [onlyProfessionals, setOnlyProfessionals] = useState(false);
+  const canManageProfessionals = user?.role === 'MANAGER';
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['customers', search, onlyProfessionals],
+    queryFn: () => api<CustomerPage>(`/customers?pageSize=50${search ? `&search=${encodeURIComponent(search)}` : ''}${onlyProfessionals ? '&professional=true' : ''}`),
+  });
   const isStaff = user?.role === 'CASHIER' || user?.role === 'MANAGER';
   const requests = useQuery({ queryKey: ['customer-redemption-requests'], enabled: isStaff, queryFn: () => api<{ id: string; createdAt: string; customer: { id: string; name: string; phone: string } }[]>('/customers/redemption-requests') });
   const resend = useMutation({ mutationFn: (id: string) => api(`/customers/${id}/resend-welcome`, { method: 'POST' }), onSuccess: () => show('Link de acesso enviado por WhatsApp.'), onError: (e) => show(e instanceof Error ? e.message : 'Não foi possível reenviar.', 'error') });
   const addButton = user?.role === 'CASHIER' || user?.role === 'MANAGER' ? <Button onClick={() => setCreating(true)}><UserPlus size={15} /> Novo cliente</Button> : undefined;
   const modal = creating && <NewCustomerModal onClose={() => setCreating(false)} onCreated={() => void qc.invalidateQueries({ queryKey: ['customers'] })} />;
   const toastEl = toast && <div className="toast-holder"><div className={`toast toast-${toast.type}`}>{toast.message}<button onClick={close}>×</button></div></div>;
-  return <><PageTitle eyebrow="RELACIONAMENTO" title="Clientes" description="Clientes cadastrados e vinculados à sua loja." action={addButton} />{!!requests.data?.length && <Card className="table-card"><div className="table-toolbar"><div><strong>Solicitações de resgate</strong><small>{requests.data.length} aguardando atendimento no caixa</small></div></div><Table><thead><tr><th>CLIENTE</th><th>CELULAR</th><th>SOLICITADO EM</th></tr></thead><tbody>{requests.data.map((r) => <tr key={r.id}><td><div className="table-primary">{r.customer.name}</div></td><td>{r.customer.phone}</td><td>{date(r.createdAt)}</td></tr>)}</tbody></Table></Card>}<Card className="table-card"><div className="table-toolbar"><div><strong>Base de clientes</strong><small>{data?.total ?? '—'} clientes</small></div><SearchBox value={search} onChange={setSearch} placeholder="Nome, celular ou e-mail" /></div>{isLoading ? <LoadingState /> : isError ? <ErrorMessage message="Falha ao carregar clientes." onRetry={() => void refetch()} /> : data?.items.length ? <Table><thead><tr><th>CLIENTE</th><th>CELULAR</th><th>E-MAIL</th><th>CADASTRO</th><th>ACESSO</th><th>PROFISSIONAL</th><th>AÇÕES</th></tr></thead><tbody>{data.items.map((c) => <tr key={c.id}><td><div className="table-primary">{c.name}</div></td><td>{c.phone}</td><td>{c.email}</td><td>{date(c.createdAt)}</td><td>{c.hasAccount ? <span className="customer-tag"><UserRound size={13} /> Ativo</span> : user?.role === 'ROOT' ? <span className="table-secondary">Pendente</span> : <button className="btn btn-secondary btn-sm" disabled={resend.isPending} onClick={() => resend.mutate(c.id)}>Reenviar link</button>}</td><td>{c.isProfessional ? <><span className="customer-tag"><HardHat size={13} /> {c.profession}</span><div className="table-secondary">{percent(c.commissionPercentBps)} por indicação</div></> : <span className="table-secondary">—</span>}</td><td>{user?.role === 'MANAGER' ? <Button size="sm" variant="secondary" onClick={() => setProfessional(c)}><Handshake size={14} /> Profissional</Button> : <span className="muted">—</span>}</td></tr>)}</tbody></Table> : <EmptyState title="Nenhum cliente encontrado" description="Os clientes vinculados à sua loja aparecerão aqui." icon={<Users size={22} />} />}</Card>{modal}{professional && <ProfessionalModal customer={professional} onClose={() => setProfessional(null)} onSaved={() => { void qc.invalidateQueries({ queryKey: ['customers'] }); show('Cadastro profissional atualizado.'); }} />}{toastEl}</>;
+  return <>
+    <PageTitle
+      eyebrow="RELACIONAMENTO"
+      title="Clientes"
+      description={canManageProfessionals ? 'Busque pelo nome, marque o cliente como profissional indicador e defina a profissão e a comissão.' : 'Clientes cadastrados e vinculados à sua loja.'}
+      action={addButton}
+    />
+    {!!requests.data?.length && <Card className="table-card"><div className="table-toolbar"><div><strong>Solicitações de resgate</strong><small>{requests.data.length} aguardando atendimento no caixa</small></div></div><Table><thead><tr><th>CLIENTE</th><th>CELULAR</th><th>SOLICITADO EM</th></tr></thead><tbody>{requests.data.map((r) => <tr key={r.id}><td><div className="table-primary">{r.customer.name}</div></td><td>{r.customer.phone}</td><td>{date(r.createdAt)}</td></tr>)}</tbody></Table></Card>}
+    <Card className="table-card">
+      <div className="table-toolbar">
+        <div><strong>Base de clientes</strong><small>{data?.total ?? '—'} {onlyProfessionals ? 'profissionais' : 'clientes'}</small></div>
+        <div className="row-actions">
+          <select className="filter-select" value={onlyProfessionals ? 'true' : 'false'} onChange={(e) => setOnlyProfessionals(e.target.value === 'true')} aria-label="Filtrar clientes">
+            <option value="false">Todos os clientes</option>
+            <option value="true">Somente profissionais</option>
+          </select>
+          <SearchBox value={search} onChange={setSearch} placeholder="Nome, celular ou e-mail" />
+        </div>
+      </div>
+      {isLoading ? <LoadingState /> : isError ? <ErrorMessage message="Falha ao carregar clientes." onRetry={() => void refetch()} /> : data?.items.length ? <Table><thead><tr><th>CLIENTE</th><th>CELULAR</th><th>E-MAIL</th><th>CADASTRO</th><th>ACESSO</th><th>PROFISSIONAL</th></tr></thead><tbody>{data.items.map((c) => <tr key={c.id}>
+        <td><div className="table-primary">{c.name}</div></td>
+        <td>{c.phone}</td>
+        <td>{c.email}</td>
+        <td>{date(c.createdAt)}</td>
+        <td>{c.hasAccount ? <span className="customer-tag"><UserRound size={13} /> Ativo</span> : user?.role === 'ROOT' ? <span className="table-secondary">Pendente</span> : <button className="btn btn-secondary btn-sm" disabled={resend.isPending} onClick={() => resend.mutate(c.id)}>Reenviar link</button>}</td>
+        <td>
+          {c.isProfessional ? <><span className="customer-tag"><HardHat size={13} /> {c.profession}</span><div className="table-secondary">{percent(c.commissionPercentBps)} por indicação</div></> : <span className="table-secondary">Não é profissional</span>}
+          {canManageProfessionals && <div style={{ marginTop: 6 }}><Button size="sm" variant={c.isProfessional ? 'secondary' : 'primary'} onClick={() => setProfessional(c)}><Handshake size={14} /> {c.isProfessional ? 'Editar profissional' : 'Definir profissional'}</Button></div>}
+        </td>
+      </tr>)}</tbody></Table> : <EmptyState title={onlyProfessionals ? 'Nenhum profissional cadastrado' : 'Nenhum cliente encontrado'} description={onlyProfessionals ? 'Marque um cliente como profissional indicador na coluna PROFISSIONAL.' : 'Os clientes vinculados à sua loja aparecerão aqui.'} icon={<Users size={22} />} />}
+    </Card>
+    {modal}
+    {professional && <ProfessionalModal customer={professional} onClose={() => setProfessional(null)} onSaved={() => { void qc.invalidateQueries({ queryKey: ['customers'] }); show('Cadastro profissional atualizado.'); }} />}
+    {toastEl}
+  </>;
 }
 
 export function CustomerCreditsPage() {

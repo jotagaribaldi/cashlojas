@@ -5,7 +5,7 @@ import { CurrentUser, ReqContext, Roles } from '../common/decorators';
 import { PaginationQuery } from '../common/pagination';
 import { AuthUser, RequestContext } from '../common/types';
 import { CustomersService } from './customers.service';
-import { CreateCustomerDto, LookupCustomerDto, UpdateProfessionalDto } from './dto';
+import { CreateCustomerDto, CustomerListQuery, LookupCustomerDto, UpdateProfessionalDto } from './dto';
 
 @Controller('customers')
 export class CustomersController {
@@ -13,8 +13,8 @@ export class CustomersController {
 
   @Get()
   @Roles(Role.ROOT, Role.CASHIER, Role.MANAGER)
-  list(@CurrentUser() user: AuthUser, @Query() q: PaginationQuery) {
-    return this.customers.listForStore(user.storeId, q.search, q.page, q.pageSize);
+  list(@CurrentUser() user: AuthUser, @Query() q: CustomerListQuery) {
+    return this.customers.listForStore(user.storeId, q.search, q.page, q.pageSize, q.professional === 'true');
   }
 
   @Roles(Role.CASHIER, Role.MANAGER)
