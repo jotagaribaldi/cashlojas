@@ -1,10 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { ActivationService } from '../auth/activation.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TelegramService } from '../notifications/telegram.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types';
+import { isValidCpf, maskCpf, normalizeCpf } from '../common/utils/cpf';
 import { formatBRL } from '../common/utils/money';
 import { normalizePhone } from '../common/utils/phone';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +31,12 @@ export class CustomersService {
     return phone;
   }
 
+  requireCpf(raw: string): string {
+    const cpf = normalizeCpf(raw);
+    if (!cpf || !isValidCpf(cpf)) throw new BadRequestException('CPF inválido. Confira os 11 dígitos.');
+    return cpf;
+  }
+
   openRedemptionRequests(storeId: string) {
     return this.prisma.redemptionRequest.findMany({
       where: { storeId, status: 'OPEN' },
@@ -37,11 +45,12 @@ export class CustomersService {
     });
   }
 
-  async lookup(rawPhone: string, staff: AuthUser) {
+  async lookup(query: { phone?: string; cpf?: string }, staff: AuthUser) {
     const storeId = staff.storeId!;
-    const phone = this.requirePhone(rawPhone);
+    if (!query.phone && !query.cpf) throw new BadRequestException('Informe o telefone ou o CPF do cliente.');
+    const where = query.cpf ? { cpf: this.requireCpf(query.cpf) } : { phone: this.requirePhone(query.phone!) };
     const customer = await this.prisma.customer.findUnique({
-      where: { phone },
+      where,
       include: {
         enrollments: {
           where: { storeId },
@@ -60,7 +69,7 @@ export class CustomersService {
     const enrollment = customer.enrollments[0];
 
     return {
-      customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email },
+      customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, cpf: maskCpf(customer.cpf), hasCpf: !!customer.cpf },
       enrolled: customer.enrollments.length > 0,
       professional: {
         isProfessional: enrollment?.isProfessional ?? false,
@@ -76,10 +85,25 @@ export class CustomersService {
   async createAtCounter(dto: CreateCustomerDto, staff: AuthUser, ip?: string) {
     const storeId = staff.storeId!;
     const phone = this.requirePhone(dto.phone);
+    const cpf = dto.cpf ? this.requireCpf(dto.cpf) : null;
     const store = await this.prisma.store.findUniqueOrThrow({
       where: { id: storeId },
       select: { id: true, groupId: true, signupBonusCents: true, validityDays: true },
     });
+
+    if (cpf) {
+      const byCpf = await this.prisma.customer.findUnique({
+        where: { cpf },
+        include: { enrollments: { select: { storeId: true, store: { select: { groupId: true } } } } },
+      });
+      if (byCpf && byCpf.phone !== phone) {
+        throw new ConflictException('Este CPF já está vinculado a outro cadastro. Peça para o cliente entrar em contato com o suporte.');
+      }
+      if (byCpf && !byCpf.enrollments.some((e) => e.store.groupId === store.groupId)) {
+        throw new ConflictException('Este CPF já recebe cashback como morador de condomínio. O cashback dele é aplicado na taxa condominial.');
+      }
+    }
+
     const existing = await this.prisma.customer.findUnique({
       where: { phone },
       include: { enrollments: { select: { storeId: true, store: { select: { groupId: true } } } } },
@@ -94,6 +118,7 @@ export class CustomersService {
       }
       const bonusCents = await this.prisma.$transaction(async (tx) => {
         await tx.customerStore.create({ data: { customerId: existing.id, storeId } });
+        if (cpf && !existing.cpf) await tx.customer.update({ where: { id: existing.id }, data: { cpf } });
         const granted = await this.cashback.grantSignupBonus(tx, {
           customerId: existing.id,
           storeId,
@@ -102,7 +127,7 @@ export class CustomersService {
           actor: { userId: staff.id, role: staff.role },
           ip,
         });
-        await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: existing.id, metadata: { storeId, bonusCents: granted }, ip }, tx);
+        await this.audit.log({ userId: staff.id, action: 'CUSTOMER_ENROLLED', entity: 'Customer', entityId: existing.id, metadata: { storeId, bonusCents: granted, cpf: maskCpf(cpf) }, ip }, tx);
         return granted;
       });
       return {
@@ -124,7 +149,7 @@ export class CustomersService {
 
     const { customer, bonusCents } = await this.prisma.$transaction(async (tx) => {
       const created = await tx.customer.create({
-        data: { name: dto.name, phone, rg: dto.rg, email: dto.email, enrollments: { create: { storeId } } },
+        data: { name: dto.name, phone, cpf, rg: dto.rg, email: dto.email, enrollments: { create: { storeId } } },
       });
       const granted = await this.cashback.grantSignupBonus(tx, {
         customerId: created.id,
@@ -134,12 +159,52 @@ export class CustomersService {
         actor: { userId: staff.id, role: staff.role },
         ip,
       });
-      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CREATED_AT_COUNTER', entity: 'Customer', entityId: created.id, metadata: { storeId, bonusCents: granted }, ip }, tx);
+      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CREATED_AT_COUNTER', entity: 'Customer', entityId: created.id, metadata: { storeId, bonusCents: granted, cpf: maskCpf(cpf) }, ip }, tx);
       return { customer: created, bonusCents: granted };
+    }).catch((err: unknown) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Já existe um cadastro com este CPF ou telefone. Confira os dados informados.');
+      }
+      throw err;
     });
-    this.telegram.notify('Cliente cadastrado no caixa', `Cliente: ${customer.name} • Tel: ${customer.phone}${bonusCents ? ` • Bônus: ${formatBRL(bonusCents)}` : ''}`, { userName: staff.name, userRole: staff.role, ip });
+    this.telegram.notify('Cliente cadastrado no caixa', `Cliente: ${customer.name} • Tel: ${customer.phone}${cpf ? ` • CPF: ${maskCpf(cpf)}` : ' • sem CPF'}${bonusCents ? ` • Bônus: ${formatBRL(bonusCents)}` : ''}`, { userName: staff.name, userRole: staff.role, ip });
     await this.sendWelcome(customer, storeId);
     return { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, alreadyRegistered: false, bonusCents };
+  }
+
+  /** Completa o CPF de um cliente já cadastrado e libera os bônus de cadastro retidos. */
+  async updateCpf(customerId: string, rawCpf: string, staff: AuthUser, ip?: string) {
+    const cpf = this.requireCpf(rawCpf);
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, enrollments: { some: { storeId: staff.storeId! } } },
+      select: { id: true, name: true, cpf: true, enrollments: { select: { storeId: true, store: { select: { signupBonusCents: true, validityDays: true } } } } },
+    });
+    if (!customer) throw new NotFoundException('Cliente não encontrado nesta loja');
+    if (customer.cpf && customer.cpf !== cpf) throw new ConflictException('Este cliente já possui um CPF cadastrado.');
+
+    const owner = await this.prisma.customer.findUnique({ where: { cpf }, select: { id: true } });
+    if (owner && owner.id !== customerId) {
+      throw new ConflictException('Este CPF já está vinculado a outro cadastro. Peça para o cliente entrar em contato com o suporte.');
+    }
+
+    const bonusCents = await this.prisma.$transaction(async (tx) => {
+      await tx.customer.update({ where: { id: customerId }, data: { cpf } });
+      let granted = 0;
+      for (const enrollment of customer.enrollments) {
+        granted += await this.cashback.grantSignupBonus(tx, {
+          customerId,
+          storeId: enrollment.storeId,
+          signupBonusCents: enrollment.store.signupBonusCents,
+          validityDays: enrollment.store.validityDays,
+          actor: { userId: staff.id, role: staff.role },
+          ip,
+        });
+      }
+      await this.audit.log({ userId: staff.id, action: 'CUSTOMER_CPF_UPDATED', entity: 'Customer', entityId: customerId, metadata: { cpf: maskCpf(cpf), bonusCents: granted }, ip }, tx);
+      return granted;
+    });
+    this.telegram.notify('CPF informado', `Cliente: ${customer.name} • CPF: ${maskCpf(cpf)}${bonusCents ? ` • Bônus liberado: ${formatBRL(bonusCents)}` : ''}`, { userName: staff.name, userRole: staff.role, ip });
+    return { id: customerId, cpf: maskCpf(cpf), bonusCents };
   }
 
   private async sendWelcome(customer: { id: string; name: string; phone: string; email: string }, storeId: string) {

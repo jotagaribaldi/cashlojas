@@ -24,6 +24,12 @@ export class RegisterCustomerDto {
   @Length(10, 13, { message: 'Telefone inválido' })
   phone: string;
 
+  @IsOptional()
+  @OnlyDigits()
+  @IsString()
+  @Length(11, 11, { message: 'CPF deve ter 11 dígitos' })
+  cpf?: string;
+
   @Sanitize()
   @IsString()
   @Length(5, 20, { message: 'RG inválido' })

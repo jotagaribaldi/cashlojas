@@ -9,10 +9,17 @@ export class CustomerListQuery extends PaginationQuery {
 }
 
 export class LookupCustomerDto {
+  @IsOptional()
   @OnlyDigits()
   @IsString()
   @Length(10, 13, { message: 'Telefone inválido' })
-  phone: string;
+  phone?: string;
+
+  @IsOptional()
+  @OnlyDigits()
+  @IsString()
+  @Length(11, 11, { message: 'CPF deve ter 11 dígitos' })
+  cpf?: string;
 }
 
 export class CreateCustomerDto {
@@ -26,6 +33,12 @@ export class CreateCustomerDto {
   @Length(10, 13, { message: 'Telefone inválido' })
   phone: string;
 
+  @IsOptional()
+  @OnlyDigits()
+  @IsString()
+  @Length(11, 11, { message: 'CPF deve ter 11 dígitos' })
+  cpf?: string;
+
   @Sanitize()
   @IsString()
   @Length(5, 20, { message: 'RG inválido' })
@@ -35,6 +48,13 @@ export class CreateCustomerDto {
   @IsEmail({}, { message: 'E-mail inválido' })
   @MaxLength(160)
   email: string;
+}
+
+export class UpdateCustomerCpfDto {
+  @OnlyDigits()
+  @IsString()
+  @Length(11, 11, { message: 'CPF deve ter 11 dígitos' })
+  cpf: string;
 }
 
 export class UpdateProfessionalDto {

@@ -5,7 +5,7 @@ import { CurrentUser, ReqContext, Roles } from '../common/decorators';
 import { PaginationQuery } from '../common/pagination';
 import { AuthUser, RequestContext } from '../common/types';
 import { CustomersService } from './customers.service';
-import { CreateCustomerDto, CustomerListQuery, LookupCustomerDto, UpdateProfessionalDto } from './dto';
+import { CreateCustomerDto, CustomerListQuery, LookupCustomerDto, UpdateCustomerCpfDto, UpdateProfessionalDto } from './dto';
 
 @Controller('customers')
 export class CustomersController {
@@ -26,7 +26,7 @@ export class CustomersController {
   @Roles(Role.CASHIER, Role.MANAGER)
   @Get('lookup')
   lookup(@CurrentUser() user: AuthUser, @Query() q: LookupCustomerDto) {
-    return this.customers.lookup(q.phone, user);
+    return this.customers.lookup({ phone: q.phone, cpf: q.cpf }, user);
   }
 
   @Roles(Role.CASHIER, Role.MANAGER)
@@ -44,6 +44,17 @@ export class CustomersController {
     @ReqContext() ctx: RequestContext,
   ) {
     return this.customers.setProfessional(id, dto, user, ctx.ip);
+  }
+
+  @Roles(Role.CASHIER, Role.MANAGER)
+  @Patch(':id/cpf')
+  updateCpf(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateCustomerCpfDto,
+    @ReqContext() ctx: RequestContext,
+  ) {
+    return this.customers.updateCpf(id, dto.cpf, user, ctx.ip);
   }
 
   @Roles(Role.CASHIER, Role.MANAGER)

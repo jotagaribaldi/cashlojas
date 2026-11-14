@@ -139,6 +139,7 @@ model Customer {
   userId             String?             @unique @db.Uuid
   name               String              @db.VarChar(120)
   phone              String              @unique @db.VarChar(15)
+  cpf                String?             @unique @db.VarChar(11)
   rg                 String              @db.VarChar(20)
   email              String              @unique @db.VarChar(160)
   createdAt          DateTime            @default(now())

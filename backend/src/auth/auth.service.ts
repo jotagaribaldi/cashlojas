@@ -11,6 +11,7 @@ import * as argon2 from 'argon2';
 import { AuditService } from '../audit/audit.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { RequestContext } from '../common/types';
+import { isValidCpf, normalizeCpf } from '../common/utils/cpf';
 import { normalizePhone } from '../common/utils/phone';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
@@ -127,6 +128,15 @@ export class AuthService implements OnModuleInit {
   async register(dto: RegisterCustomerDto, ctx: RequestContext) {
     const phone = normalizePhone(dto.phone);
     if (!phone) throw new BadRequestException('Telefone inválido. Informe DDD + número.');
+    const cpf = dto.cpf ? normalizeCpf(dto.cpf) : null;
+    if (dto.cpf && (!cpf || !isValidCpf(cpf))) throw new BadRequestException('CPF inválido. Confira os 11 dígitos.');
+
+    if (cpf) {
+      const cpfOwner = await this.prisma.customer.findUnique({ where: { cpf }, select: { id: true, phone: true } });
+      if (cpfOwner && cpfOwner.phone !== phone) {
+        throw new ConflictException('Este CPF já está vinculado a outro cadastro. Entre em contato com o suporte.');
+      }
+    }
 
     const storeIds = [...new Set(dto.storeIds ?? [])];
     const stores = storeIds.length
@@ -155,9 +165,9 @@ export class AuthService implements OnModuleInit {
         data: { name: dto.name, email: dto.email, passwordHash, role: Role.CUSTOMER },
       });
       const customer = existing
-        ? await tx.customer.update({ where: { id: existing.id }, data: { userId: created.id, name: dto.name } })
+        ? await tx.customer.update({ where: { id: existing.id }, data: { userId: created.id, name: dto.name, ...(cpf && !existing.cpf ? { cpf } : {}) } })
         : await tx.customer.create({
-            data: { userId: created.id, name: dto.name, phone, rg: dto.rg, email: dto.email },
+            data: { userId: created.id, name: dto.name, phone, cpf, rg: dto.rg, email: dto.email },
           });
       if (storeIds.length) {
         await tx.customerStore.createMany({

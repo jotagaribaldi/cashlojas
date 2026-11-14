@@ -55,6 +55,9 @@ export class PurchasesService {
       include: { enrollments: { where: { storeId }, select: { storeId: true } } },
     });
     if (!customer) throw new NotFoundException('Cliente não encontrado. O cliente precisa estar cadastrado.');
+    if (!customer.cpf) {
+      throw new UnprocessableEntityException('Cliente sem CPF cadastrado. Informe o CPF para gerar cashback.');
+    }
     if (customer.enrollments.length === 0) {
       throw new UnprocessableEntityException('Cliente não está cadastrado nesta loja. Vincule-o antes de registrar a compra.');
     }
