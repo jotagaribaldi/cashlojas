@@ -37,6 +37,7 @@ export function publicUser(user: Pick<User, 'id' | 'name' | 'email' | 'role' | '
 @Injectable()
 export class AuthService implements OnModuleInit {
   private dummyHash = '';
+  private readonly storeNames = new Map<string, string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -58,6 +59,17 @@ export class AuthService implements OnModuleInit {
     return `${base}${path}`;
   }
 
+  /** Nome da loja para as notificações de acesso (cache em memória por processo). */
+  private async storeName(storeId: string | null | undefined): Promise<string | undefined> {
+    if (!storeId) return undefined;
+    const cached = this.storeNames.get(storeId);
+    if (cached) return cached;
+    const store = await this.prisma.store.findUnique({ where: { id: storeId }, select: { name: true } }).catch(() => null);
+    if (!store) return undefined;
+    this.storeNames.set(storeId, store.name);
+    return store.name;
+  }
+
   async verifyCredentials(email: string, password: string, ctx: RequestContext): Promise<User> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -66,8 +78,8 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN_BLOCKED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Conta bloqueada', ip: ctx.ip, userAgent: ctx.userAgent });
-      this.telegram.notify('Conta bloqueada', 'Excesso de tentativas de login', { userName: user.name, userRole: user.role, ip: ctx.ip });
+      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN_BLOCKED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Conta bloqueada', ip: ctx.ip, userAgent: ctx.userAgent, notify: false });
+      this.telegram.notify('Conta bloqueada', 'Excesso de tentativas de login', { userName: user.name, userRole: user.role, storeName: await this.storeName(user.storeId), ip: ctx.ip });
       throw new UnauthorizedException('Conta temporariamente bloqueada por excesso de tentativas. Tente mais tarde.');
     }
 
@@ -91,8 +103,8 @@ export class AuthService implements OnModuleInit {
         });
         return true;
       });
-      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: lock ? 'ACCOUNT_LOCKED' : 'LOGIN_FAILED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Senha incorreta', ip: ctx.ip, userAgent: ctx.userAgent });
-      this.telegram.notify(lock ? 'Conta bloqueada' : 'Falha de login', `Tentativa de senha incorreta${lock ? ' — conta bloqueada' : ''}`, { userName: user.name, userRole: user.role, ip: ctx.ip });
+      await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: lock ? 'ACCOUNT_LOCKED' : 'LOGIN_FAILED', entity: 'User', entityId: user.id, outcome: 'DENIED', error: 'Senha incorreta', ip: ctx.ip, userAgent: ctx.userAgent, notify: false });
+      this.telegram.notify(lock ? 'Conta bloqueada' : 'Falha de login', `Tentativa de senha incorreta${lock ? ' — conta bloqueada' : ''} • ${user.email}`, { userName: user.name, userRole: user.role, storeName: await this.storeName(user.storeId), ip: ctx.ip });
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     if (!user.active) throw new UnauthorizedException('Usuário inativo');
@@ -107,8 +119,8 @@ export class AuthService implements OnModuleInit {
     const user = await this.verifyCredentials(dto.email, dto.password, ctx);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const issued = await this.tokens.issue(user, ctx);
-    await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN', entity: 'User', entityId: user.id, ip: ctx.ip, userAgent: ctx.userAgent });
-    this.telegram.notify('Login realizado', `Acesso à aplicação`, { userName: user.name, userRole: user.role, ip: ctx.ip });
+    await this.audit.log({ userId: user.id, role: user.role, storeId: user.storeId, action: 'LOGIN', entity: 'User', entityId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, notify: false });
+    this.telegram.notify('Login realizado', `Acesso à aplicação • ${user.email}`, { userName: user.name, userRole: user.role, storeName: await this.storeName(user.storeId), ip: ctx.ip });
     return { ...issued, user: publicUser(user) };
   }
 
