@@ -54,6 +54,7 @@ export function auditMiddleware(audit: AuditService) {
         }) as never,
         ip: ctx.ip,
         userAgent: ctx.userAgent,
+        notify: !ctx.notified,
       });
     });
 
