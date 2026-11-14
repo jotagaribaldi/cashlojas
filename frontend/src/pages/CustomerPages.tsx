@@ -4,10 +4,9 @@ import { ArrowRight, CheckCircle2, Clock3, Gift, Handshake, HardHat, ShoppingBag
 import { Badge, Button, Card, EmptyState, ErrorMessage, Field, Input, LoadingState, Modal, PageTitle, SearchBox, Select, Table, useToast } from '../components/ui';
 import { useAuth } from '../auth/AuthContext';
 import { api, jsonBody } from '../lib/api';
+import { fetchCustomersPage, type Customer } from '../lib/customers';
 import { date, expiryLabel, money, percent } from '../lib/format';
 
-interface Customer { id: string; name: string; phone: string; email: string; createdAt: string; hasAccount: boolean; isProfessional: boolean; profession: string | null; commissionPercentBps: number }
-interface CustomerPage { total: number; page: number; pageSize: number; items: Customer[] }
 interface Credit { id: string; source: 'PURCHASE' | 'SIGNUP_BONUS'; amountCents: number; remainingCents: number; expiresAt: string; status: string; earnedAt: string; store: { name: string }; purchase: { purchaseDate: string; amountCents: number; fiscalDocument: string } | null }
 
 function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -64,7 +63,7 @@ export function CustomersPage() {
   const canManageProfessionals = user?.role === 'MANAGER';
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['customers', search, onlyProfessionals],
-    queryFn: () => api<CustomerPage>(`/customers?pageSize=50${search ? `&search=${encodeURIComponent(search)}` : ''}${onlyProfessionals ? '&professional=true' : ''}`),
+    queryFn: () => fetchCustomersPage({ search, onlyProfessionals }),
   });
   const isStaff = user?.role === 'CASHIER' || user?.role === 'MANAGER';
   const requests = useQuery({ queryKey: ['customer-redemption-requests'], enabled: isStaff, queryFn: () => api<{ id: string; createdAt: string; customer: { id: string; name: string; phone: string } }[]>('/customers/redemption-requests') });
