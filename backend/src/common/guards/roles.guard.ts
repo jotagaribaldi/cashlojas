@@ -21,7 +21,8 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Você não tem permissão para acessar este recurso');
     }
     if (req.user.role !== Role.ROOT && req.user.role !== Role.CUSTOMER && !req.user.storeId) {
-      throw new ForbiddenException('Usuário sem loja vinculada');
+      const scoped = req.user.role === Role.SINDICO || req.user.role === Role.ADMINISTRADORA;
+      if (!scoped) throw new ForbiddenException('Usuário sem loja vinculada');
     }
     return true;
   }

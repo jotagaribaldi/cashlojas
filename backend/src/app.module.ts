@@ -11,6 +11,9 @@ import { AuthModule } from './auth/auth.module';
 import { CashbackModule } from './cashback/cashback.module';
 import { CommissionsController } from './commissions/commissions.controller';
 import { CommissionsService } from './commissions/commissions.service';
+import { CondominiosController } from './condominios/condominios.controller';
+import { CondominiosService } from './condominios/condominios.service';
+import { ScopeService } from './condominios/scope.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -52,6 +55,7 @@ import { TeamController } from './team/team.controller';
     RedemptionsController,
     MeController,
     ReportsController,
+    CondominiosController,
   ],
   providers: [
     AdminService,
@@ -62,6 +66,8 @@ import { TeamController } from './team/team.controller';
     RedemptionsService,
     MeService,
     ReportsService,
+    CondominiosService,
+    ScopeService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

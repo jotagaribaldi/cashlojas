@@ -56,6 +56,14 @@ export interface StaffNotifyData {
   summary: string;
 }
 
+export interface InviteMessageData {
+  name: string;
+  email: string;
+  roleLabel: string;
+  scopeName: string;
+  inviteUrl: string;
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger('Notifications');
@@ -276,6 +284,36 @@ export class NotificationsService {
   notifyStaff(d: StaffNotifyData): void {
     if (!this.config.get('EMAIL_STAFF_NOTIFY', { infer: true })) return;
     void this.deliverStaffEmail(d);
+  }
+
+  /** Convite para síndico ou usuário de administradora (sem Customer vinculado). */
+  notifyInvite(d: InviteMessageData): void {
+    const firstName = d.name.split(' ')[0];
+    const text = [
+      `Olá, ${firstName}! Você foi convidado(a) para acessar o CashLojas como ${d.roleLabel} de ${d.scopeName}.`,
+      ``,
+      `Crie sua senha pelo link abaixo para acompanhar os relatórios e dados do condomínio:`,
+      d.inviteUrl,
+      ``,
+      `Este link é pessoal e tem validade limitada.`,
+    ].join('\n');
+    this.dispatchEmail(
+      null,
+      {
+        to: d.email,
+        subject: `Convite de acesso ao CashLojas — ${d.scopeName}`,
+        text,
+        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#18243b">
+          <h2 style="color:#16885f">Convite de acesso ao CashLojas</h2>
+          <p>Olá, <strong>${firstName}</strong>! Você foi convidado(a) para acessar o CashLojas como <strong>${d.roleLabel}</strong> de <strong>${d.scopeName}</strong>.</p>
+          <div style="text-align:center;margin:24px 0">
+            <a href="${d.inviteUrl}" style="background:#16885f;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold">Criar minha senha</a>
+          </div>
+          <p style="font-size:13px;color:#8b96a6">Este link é pessoal e tem validade limitada.</p>
+        </div>`,
+      },
+      d.email,
+    );
   }
 
   private dispatchWhatsapp(customerId: string, message: WhatsAppMessage): void {

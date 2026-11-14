@@ -13,6 +13,8 @@ enum Role {
   MANAGER
   CASHIER
   CUSTOMER
+  SINDICO
+  ADMINISTRADORA
 }
 
 enum CreditStatus {
@@ -110,6 +112,9 @@ model User {
   redemptionsApproved  Redemption[]   @relation("RedemptionManager")
   commissionsPaid      ReferralCommission[] @relation("CommissionPaidBy")
   auditLogs            AuditLog[]
+  sindicoVinculos      SindicoVinculo[]
+  administradoraVinculo AdministradoraUser?
+  activationTokens     ActivationToken[]
 
   @@index([storeId])
   @@map("users")
@@ -154,20 +159,24 @@ model Customer {
   redemptionRequests RedemptionRequest[]
   referrals          Purchase[]          @relation("PurchaseReferrer")
   commissions        ReferralCommission[]
+  moradia            Moradia?
 
   @@map("customers")
 }
 
 model ActivationToken {
   id         String    @id @default(uuid()) @db.Uuid
-  customerId String    @db.Uuid
+  customerId String?   @db.Uuid
+  userId     String?   @db.Uuid
   tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?
   createdAt  DateTime  @default(now())
-  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([userId])
   @@map("activation_tokens")
 }
 
@@ -347,4 +356,89 @@ model RedemptionRequest {
   @@index([storeId, status])
   @@index([customerId])
   @@map("redemption_requests")
+}
+model Administradora {
+  id        String   @id @default(uuid()) @db.Uuid
+  cnpj      String   @unique @db.VarChar(14)
+  name      String   @db.VarChar(160)
+  email     String   @db.VarChar(160)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  condominios Condominio[]
+  users       AdministradoraUser[]
+
+  @@map("administradoras")
+}
+
+model Condominio {
+  id                   String   @id @default(uuid()) @db.Uuid
+  cnpj                 String   @unique @db.VarChar(14)
+  name                 String   @db.VarChar(160)
+  administradoraId     String   @db.Uuid
+  commissionPercentBps Int      @default(2000)
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  administradora       Administradora @relation(fields: [administradoraId], references: [id], onDelete: Restrict)
+  unidades             Unidade[]
+  sindicos             SindicoVinculo[]
+  moradias             Moradia[]
+
+  @@index([administradoraId])
+  @@map("condominios")
+}
+
+model Unidade {
+  id           String     @id @default(uuid()) @db.Uuid
+  condominioId String     @db.Uuid
+  label        String     @db.VarChar(40)
+  createdAt    DateTime   @default(now())
+  condominio   Condominio @relation(fields: [condominioId], references: [id], onDelete: Cascade)
+  moradias     Moradia[]
+
+  @@unique([condominioId, label])
+  @@map("unidades")
+}
+
+model Moradia {
+  id           String     @id @default(uuid()) @db.Uuid
+  customerId   String     @unique @db.Uuid
+  condominioId String     @db.Uuid
+  unidadeId    String     @db.Uuid
+  startedAt    DateTime   @default(now())
+  endedAt      DateTime?
+  customer     Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  condominio   Condominio @relation(fields: [condominioId], references: [id], onDelete: Restrict)
+  unidade      Unidade    @relation(fields: [unidadeId], references: [id], onDelete: Restrict)
+
+  @@index([condominioId])
+  @@index([unidadeId])
+  @@map("moradias")
+}
+
+model SindicoVinculo {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @db.Uuid
+  condominioId String     @db.Uuid
+  startedAt    DateTime   @default(now())
+  endedAt      DateTime?
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  condominio   Condominio @relation(fields: [condominioId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, condominioId])
+  @@index([condominioId])
+  @@map("sindico_vinculos")
+}
+
+model AdministradoraUser {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @unique @db.Uuid
+  administradoraId String        @db.Uuid
+  createdAt       DateTime       @default(now())
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  administradora  Administradora @relation(fields: [administradoraId], references: [id], onDelete: Cascade)
+
+  @@index([administradoraId])
+  @@map("administradora_users")
 }

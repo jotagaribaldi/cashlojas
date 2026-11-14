@@ -11,9 +11,10 @@ import { ActivatePage, LoginPage, RegisterPage } from './pages/AuthPages';
 import { ProfilePage } from './pages/ProfilePage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
+import { CondominiosPage } from './pages/CondominiosPage';
 import { LoadingState } from './components/ui';
 
-const all: Role[] = ['ROOT', 'MANAGER', 'CASHIER', 'CUSTOMER'];
+const all: Role[] = ['ROOT', 'MANAGER', 'CASHIER', 'CUSTOMER', 'SINDICO', 'ADMINISTRADORA'];
 const management: Role[] = ['ROOT', 'MANAGER'];
 
 export default function App() {
@@ -50,6 +51,11 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route path="admin/stores" element={<AdminStoresPage />} />
         <Route path="admin/audit" element={<AuditPage />} />
+      </Route>
+    </Route>
+    <Route element={<ProtectedRoute roles={['ROOT', 'SINDICO', 'ADMINISTRADORA']} />}>
+      <Route element={<AppShell />}>
+        <Route path="condominios" element={<CondominiosPage />} />
       </Route>
     </Route>
     <Route element={<ProtectedRoute roles={['CUSTOMER']} />}>
